@@ -104,6 +104,12 @@ async function executeDefaultWin(roomId, leaverUserId) {
   const room = rooms[roomId];
   if (!room || room.winner) return;
 
+  // 【🔥今回の修正箇所：ここから🔥】
+  // アクティブなプレイヤー（XかO）が2人未満、つまり「まだ対戦相手が来ていない」なら不戦敗処理を中止する
+  const activePlayers = room.players.filter(p => p.role === 'X' || p.role === 'O');
+  if (activePlayers.length < 2) return;
+  // 【🔥今回の修正箇所：ここまで🔥】
+
   const leavingPlayer = room.players.find(p => p.userId === leaverUserId);
   const leavingPlayerRole = leavingPlayer?.role;
   if (!leavingPlayerRole || leavingPlayerRole === 'Spectator') return;
