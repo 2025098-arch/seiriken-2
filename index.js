@@ -6,11 +6,9 @@ const mongoose = require('mongoose');
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
-  // Renderなどのプロキシ環境下でクライアントの本当のIPを取得するための設定
   trustProxy: true
 });
 
-// Expressでもプロキシを信頼する設定（IP取得用）
 app.set('trust proxy', true);
 app.use(express.static('public'));
 
@@ -18,13 +16,12 @@ mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log('Connected to MongoDB successfully.'))
   .catch(err => console.error('MongoDB connection error:', err));
 
-// 【🔥追加】ipAddress フィールドを追加してサブアカを防止
 const userSchema = new mongoose.Schema({
   userId: { type: String, required: true },
   nickname: { type: String, required: true, unique: true },
   password: { type: String, required: true },
   icon: { type: mongoose.Schema.Types.Mixed },
-  ipAddress: { type: String, required: true }, // サブアカ防止用IP記録
+  ipAddress: { type: String, required: true },
   totalWins: { type: Number, default: 0 },
   totalLosses: { type: Number, default: 0 },
   totalDraws: { type: Number, default: 0 },
@@ -66,20 +63,34 @@ setInterval(() => {
     isCurrentlyClassTime = current;
     io.emit('schedule-status', isCurrentlyClassTime);
 
-    // 【🔥追加】授業が始まった瞬間に、進行中の全ゲームを「授業中の一時停止状態」にする
     if (isCurrentlyClassTime) {
       Object.keys(rooms).forEach(roomId => {
         const room = rooms[roomId];
         if (!room.winner) {
-          room.isClassPaused = true; // 授業による一時停止フラグ
+          room.isClassPaused = true;
           io.to(roomId).emit('game-paused', { reason: 'classTime', message: '授業が始まりました。ゲームは一時停止されます。終了後に再開可能です。' });
         }
       });
     } else {
-      // 授業が終わったらフラグを解除（ログイン時の復帰ロジックで再開される）
+      // 【🔥修正】授業終了時、実際に切断されているプレイヤーがいないかチェックし、いればタイマー始動（ゴースト部屋防止）
       Object.keys(rooms).forEach(roomId => {
-        if (rooms[roomId].isClassPaused) {
-          rooms[roomId].isClassPaused = false;
+        const room = rooms[roomId];
+        if (room.isClassPaused) {
+          room.isClassPaused = false;
+          io.to(roomId).emit('game-resumed');
+
+          room.players.forEach(p => {
+            if (p.role !== 'Spectator') {
+              const socketExists = io.sockets.sockets.get(p.id);
+              if (!socketExists) {
+                io.to(roomId).emit('game-paused', { reason: 'disconnect', message: '対戦相手の通信が切断されています。復帰を待っています...(60秒後に不戦勝)' });
+                room.disconnectTimers = room.disconnectTimers || {};
+                room.disconnectTimers[p.userId] = setTimeout(() => {
+                  executeDefaultWin(roomId, p.userId).catch(console.error);
+                }, 60000);
+              }
+            }
+          });
         }
       });
     }
@@ -134,6 +145,8 @@ async function executeDefaultWin(roomId, leaverUserId) {
 
   room.winner = opponentRole;
 
+  let updatedOpponentStats = null;
+
   try {
     const leaverStats = await User.findOne({ userId: leaverUserId });
     if (leaverStats) {
@@ -148,21 +161,28 @@ async function executeDefaultWin(roomId, leaverUserId) {
         opponentStats.defaultWins += 1;
         opponentStats.totalWins += 1;
         await opponentStats.save();
+        updatedOpponentStats = opponentStats;
         io.to(remainingOpponent.id).emit('sync-stats', opponentStats);
       }
     }
+
+    // 【🔥修正】UI即時反映のため、broadcastStateを先に実行しDB同期を完了させる
+    await broadcastState();
 
     io.to(roomId).emit('win', { 
       winnerRole: opponentRole, 
       board: room.board, 
       players: room.players, 
       isDefault: true, 
-      leaverName: leavingPlayer ? leavingPlayer.nickname : "対戦相手" 
+      leaverName: leavingPlayer ? leavingPlayer.nickname : "対戦相手",
+      updatedStats: updatedOpponentStats // 最新の戦績を直接乗せて送る
     });
 
-    await broadcastState();
+    // タイマーの完全クリーンアップ
+    if (room.disconnectTimers) {
+      Object.values(room.disconnectTimers).forEach(timer => clearTimeout(timer));
+    }
 
-    // 【🔥修正】setTimeout(4000)を完全削除。ラグなしで即座に解散処理を実行する
     if (rooms[roomId]) {
       io.to(roomId).emit('forced-leave', { message: '不戦勝・不戦敗が確定したため、この部屋は自動的に解散されました。' });
       const ioRoom = io.sockets.adapter.rooms.get(roomId);
@@ -174,22 +194,25 @@ async function executeDefaultWin(roomId, leaverUserId) {
         });
       }
       delete rooms[roomId];
-      broadcastState();
+      await broadcastState();
     }
-
   } catch (err) {
     console.error('Error in executeDefaultWin:', err);
   }
 }
 
 io.on('connection', (socket) => {
-  // Renderなどのプロキシ環境下でクライアントの本当のIPを取得
-  const clientIp = socket.handshake.headers['x-forwarded-for'] || socket.handshake.address;
+  // 【🔥修正】IPパース時の配列クラッシュを防止
+  const forwarded = socket.handshake.headers['x-forwarded-for'];
+  let clientIp = socket.handshake.address;
+  if (forwarded) {
+    clientIp = Array.isArray(forwarded) ? forwarded[0] : forwarded.split(',')[0].trim();
+  }
+
   socket.emit('schedule-status', isCurrentlyClassTime);
 
   socket.on('register', async (data) => {
     try {
-      // 【🔥追加】同じIPアドレスからの登録をブロック（サブアカ防止）
       const existingIp = await User.findOne({ ipAddress: clientIp });
       if (existingIp) return socket.emit('auth-error', 'この端末(ネットワーク)からは既にアカウントが作成されています。');
 
@@ -202,7 +225,7 @@ io.on('connection', (socket) => {
         nickname: data.nickname, 
         password: data.password, 
         icon: data.icon,
-        ipAddress: clientIp, // IPを記録
+        ipAddress: clientIp,
         totalWins: 0, totalLosses: 0, totalDraws: 0, wins: 0, losses: 0, defaultWins: 0, defaultLosses: 0
       });
 
@@ -238,7 +261,6 @@ io.on('connection', (socket) => {
 
           socket.emit('joined-room', { roomId, role: p.role, board: room.board, turn: room.turn, winner: room.winner, players: room.players });
 
-          // 【🔥追加】授業が終了していればゲーム再開を通知
           if (!isCurrentlyClassTime && room.isClassPaused) {
              room.isClassPaused = false;
           }
@@ -301,7 +323,6 @@ io.on('connection', (socket) => {
   socket.on('create-room', (name) => {
     if (isCurrentlyClassTime) return;
     const roomId = Math.random().toString(36).substring(7);
-    // 【🔥追加】isClassPaused プロパティを初期化時に持たせる
     rooms[roomId] = { name: name || `${socket.nickname}の部屋`, board: Array(64).fill(null), turn: 'X', players: [{ id: socket.id, userId: socket.userId, nickname: socket.nickname, icon: socket.icon, role: 'X' }], winner: null, rematchVotes: [], disconnectTimers: {}, isClassPaused: false };
     socket.join(roomId);
     socket.emit('joined-room', { roomId, role: 'X', board: rooms[roomId].board, turn: 'X', players: rooms[roomId].players });
@@ -324,7 +345,6 @@ io.on('connection', (socket) => {
 
   socket.on('move', async ({ roomId, pegIndex }) => {
     const room = rooms[roomId];
-    // 【🔥追加】isClassPaused が true の時はコマを置けないようにする
     if (!room || room.winner || isCurrentlyClassTime || room.isClassPaused) return;
     const p = room.players.find(pl => pl.id === socket.id);
     if (!p || p.role !== room.turn || room.players.filter(pl => pl.role !== 'Spectator').length < 2) return;
@@ -338,10 +358,14 @@ io.on('connection', (socket) => {
           room.winner = p.role;
           const op = room.players.find(pl => pl.role === (p.role === 'X' ? 'O' : 'X'));
 
+          let wStats = null;
+          let lStats = null;
+
           const winnerStats = await User.findOne({ userId: p.userId });
           if (winnerStats) { 
             winnerStats.wins++; winnerStats.totalWins++; 
             await winnerStats.save(); 
+            wStats = winnerStats;
             io.to(p.id).emit('sync-stats', winnerStats); 
           }
 
@@ -350,27 +374,45 @@ io.on('connection', (socket) => {
             if (loserStats) { 
               loserStats.losses++; loserStats.totalLosses++; 
               await loserStats.save(); 
+              lStats = loserStats;
               io.to(op.id).emit('sync-stats', loserStats); 
             }
           }
 
-          io.to(roomId).emit('win', { winnerRole: p.role, board: room.board, players: room.players, isDefault: false });
+          // 【🔥修正】winイベント送信前に絶対に全体ステートを同期させる
           await broadcastState();
+
+          io.to(roomId).emit('win', { 
+            winnerRole: p.role, 
+            board: room.board, 
+            players: room.players, 
+            isDefault: false,
+            updatedStats: { winner: wStats, loser: lStats } // 最新の戦績を直接乗せて送る
+          });
+
         } else if (checkDraw(room.board)) {
           room.winner = 'Draw';
           const activePlayers = room.players.filter(pl => pl.role !== 'Spectator');
+          let drawStatsList = [];
 
           for (const pl of activePlayers) {
             const st = await User.findOne({ userId: pl.userId });
             if (st) { 
               st.totalDraws++; 
               await st.save(); 
+              drawStatsList.push(st);
               io.to(pl.id).emit('sync-stats', st); 
             }
           }
 
-          io.to(roomId).emit('draw', { board: room.board, players: room.players });
           await broadcastState();
+
+          io.to(roomId).emit('draw', { 
+            board: room.board, 
+            players: room.players,
+            updatedStats: drawStatsList
+          });
+
         } else {
           room.turn = room.turn === 'X' ? 'O' : 'X';
           io.to(roomId).emit('update', { board: room.board, turn: room.turn });
@@ -398,18 +440,29 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('leave-room', (roomId) => {
+  socket.on('leave-room', async (roomId) => {
     const room = rooms[roomId];
-    if (room) {
-      // 【🔥追加】授業中の一時停止状態（isClassPaused）であれば、不戦敗にはせず静かに部屋を出ることを許可する
-      if (!room.isClassPaused && !isCurrentlyClassTime) {
-        executeDefaultWin(roomId, socket.userId);
-      }
-      room.players = room.players.filter(p => p.id !== socket.id);
+    if (!room) return;
+
+    const p = room.players.find(pl => pl.id === socket.id);
+
+    // 【🔥修正】対戦プレイヤーが試合中に意図的に抜けた場合は不戦敗処理へ完全委譲
+    if (p && p.role !== 'Spectator' && !room.winner && !room.isClassPaused && !isCurrentlyClassTime) {
+      await executeDefaultWin(roomId, socket.userId);
+    } else {
+      // 観戦者、試合終了後、あるいは授業中の一時停止中の退出処理
+      room.players = room.players.filter(pl => pl.id !== socket.id);
       socket.leave(roomId);
-      if (room.players.length === 0) delete rooms[roomId];
-      else io.to(roomId).emit('update-players', room.players);
-      broadcastState();
+
+      if (room.players.length === 0) {
+        if (room.disconnectTimers) {
+          Object.values(room.disconnectTimers).forEach(timer => clearTimeout(timer));
+        }
+        delete rooms[roomId];
+      } else {
+        io.to(roomId).emit('update-players', room.players);
+      }
+      await broadcastState();
     }
   });
 
@@ -419,24 +472,23 @@ io.on('connection', (socket) => {
       const p = room.players.find(pl => pl.id === socket.id);
       if (p) {
         if (p.role !== 'Spectator' && !room.winner) {
-          // 【🔥追加】授業中の一時停止状態であれば、60秒タイマー（不戦敗）を発動させない
           if (room.isClassPaused || isCurrentlyClassTime) {
-            // 切断処理はせず、部屋に残したままにする（授業後に再ログインで復帰可能）
             return;
           }
 
           io.to(roomId).emit('game-paused', { reason: 'disconnect', message: '対戦相手の通信が切断されました。復帰を待っています...(60秒後に不戦勝)' });
           room.disconnectTimers = room.disconnectTimers || {};
           room.disconnectTimers[p.userId] = setTimeout(() => {
-            executeDefaultWin(roomId, p.userId);
-            room.players = room.players.filter(pl => pl.userId !== p.userId);
-            if (room.players.length === 0) delete rooms[roomId];
-            else io.to(roomId).emit('update-players', room.players);
-            broadcastState();
+            executeDefaultWin(roomId, p.userId).catch(console.error);
           }, 60000);
         } else {
           room.players = room.players.filter(pl => pl.id !== socket.id);
-          if (room.players.length === 0) delete rooms[roomId];
+          if (room.players.length === 0) {
+             if (room.disconnectTimers) {
+                Object.values(room.disconnectTimers).forEach(timer => clearTimeout(timer));
+             }
+             delete rooms[roomId];
+          }
           else io.to(roomId).emit('update-players', room.players);
         }
       }
