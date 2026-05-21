@@ -72,7 +72,6 @@ setInterval(() => {
         }
       });
     } else {
-      // 【🔥修正】授業終了時、実際に切断されているプレイヤーがいないかチェックし、いればタイマー始動（ゴースト部屋防止）
       Object.keys(rooms).forEach(roomId => {
         const room = rooms[roomId];
         if (room.isClassPaused) {
@@ -166,7 +165,6 @@ async function executeDefaultWin(roomId, leaverUserId) {
       }
     }
 
-    // 【🔥修正】UI即時反映のため、broadcastStateを先に実行しDB同期を完了させる
     await broadcastState();
 
     io.to(roomId).emit('win', { 
@@ -175,10 +173,9 @@ async function executeDefaultWin(roomId, leaverUserId) {
       players: room.players, 
       isDefault: true, 
       leaverName: leavingPlayer ? leavingPlayer.nickname : "対戦相手",
-      updatedStats: updatedOpponentStats // 最新の戦績を直接乗せて送る
+      updatedStats: updatedOpponentStats 
     });
 
-    // タイマーの完全クリーンアップ
     if (room.disconnectTimers) {
       Object.values(room.disconnectTimers).forEach(timer => clearTimeout(timer));
     }
@@ -202,7 +199,6 @@ async function executeDefaultWin(roomId, leaverUserId) {
 }
 
 io.on('connection', (socket) => {
-  // 【🔥修正】IPパース時の配列クラッシュを防止
   const forwarded = socket.handshake.headers['x-forwarded-for'];
   let clientIp = socket.handshake.address;
   if (forwarded) {
@@ -379,7 +375,6 @@ io.on('connection', (socket) => {
             }
           }
 
-          // 【🔥修正】winイベント送信前に絶対に全体ステートを同期させる
           await broadcastState();
 
           io.to(roomId).emit('win', { 
@@ -387,7 +382,7 @@ io.on('connection', (socket) => {
             board: room.board, 
             players: room.players, 
             isDefault: false,
-            updatedStats: { winner: wStats, loser: lStats } // 最新の戦績を直接乗せて送る
+            updatedStats: { winner: wStats, loser: lStats }
           });
 
         } else if (checkDraw(room.board)) {
@@ -430,8 +425,11 @@ io.on('connection', (socket) => {
     if (p && p.role !== 'Spectator' && !room.rematchVotes.includes(p.role)) {
       room.rematchVotes.push(p.role);
       if (room.rematchVotes.length === 2) {
-        room.board = Array(64).fill(null); room.turn = 'X'; room.winner = null; room.rematchVotes = [];
-        room.players.forEach(pl => { if (pl.role === 'X') pl.role = 'O'; else if (pl.role === 'O') pl.role = 'X'; });
+        room.board = Array(64).fill(null); 
+        room.turn = 'X'; 
+        room.winner = null; 
+        room.rematchVotes = [];
+        // 【🔥修正】「急に置けなくなるバグ」を回避するため、役割（ロール）の入れ替えは行わない
         io.to(roomId).emit('rematch-start', { board: room.board, turn: room.turn, players: room.players });
         broadcastState();
       } else {
@@ -445,22 +443,33 @@ io.on('connection', (socket) => {
     if (!room) return;
 
     const p = room.players.find(pl => pl.id === socket.id);
+    const activeCount = room.players.filter(pl => pl.role === 'X' || pl.role === 'O').length;
 
-    // 【🔥修正】対戦プレイヤーが試合中に意図的に抜けた場合は不戦敗処理へ完全委譲
-    if (p && p.role !== 'Spectator' && !room.winner && !room.isClassPaused && !isCurrentlyClassTime) {
-      await executeDefaultWin(roomId, socket.userId);
-    } else {
-      // 観戦者、試合終了後、あるいは授業中の一時停止中の退出処理
-      room.players = room.players.filter(pl => pl.id !== socket.id);
+    // 試合中に意図的に抜けた場合の処理
+    if (p && p.role !== 'Spectator' && !room.winner && !room.isClassPaused && !isCurrentlyClassTime && activeCount === 2) {
+      const op = room.players.find(pl => pl.role !== 'Spectator' && pl.id !== socket.id);
+
+      // 【🔥修正】相手が切断中なのに、待てずに自分が退出した場合 → 「相手の逃亡（自分の不戦勝）」として処理
+      if (op && room.disconnectTimers && room.disconnectTimers[op.userId]) {
+        await executeDefaultWin(roomId, op.userId);
+      } else {
+        // 通常の退出
+        await executeDefaultWin(roomId, socket.userId);
+      }
+    }
+
+    // 【🔥修正】ゴースト部屋防止: executeDefaultWinの成否に関わらず、部屋が残っていれば絶対に消す
+    if (rooms[roomId]) {
+      rooms[roomId].players = rooms[roomId].players.filter(pl => pl.id !== socket.id);
       socket.leave(roomId);
 
-      if (room.players.length === 0) {
-        if (room.disconnectTimers) {
-          Object.values(room.disconnectTimers).forEach(timer => clearTimeout(timer));
+      if (rooms[roomId].players.length === 0) {
+        if (rooms[roomId].disconnectTimers) {
+          Object.values(rooms[roomId].disconnectTimers).forEach(timer => clearTimeout(timer));
         }
         delete rooms[roomId];
       } else {
-        io.to(roomId).emit('update-players', room.players);
+        io.to(roomId).emit('update-players', rooms[roomId].players);
       }
       await broadcastState();
     }
@@ -470,11 +479,13 @@ io.on('connection', (socket) => {
     Object.keys(rooms).forEach(roomId => {
       const room = rooms[roomId];
       const p = room.players.find(pl => pl.id === socket.id);
+
       if (p) {
-        if (p.role !== 'Spectator' && !room.winner) {
-          if (room.isClassPaused || isCurrentlyClassTime) {
-            return;
-          }
+        const activeCount = room.players.filter(pl => pl.role === 'X' || pl.role === 'O').length;
+
+        // 【🔥修正】相手がいない(1人しかいない)状態での切断時は、タイマーを回さず即座に部屋を消す
+        if (p.role !== 'Spectator' && !room.winner && activeCount === 2) {
+          if (room.isClassPaused || isCurrentlyClassTime) return;
 
           io.to(roomId).emit('game-paused', { reason: 'disconnect', message: '対戦相手の通信が切断されました。復帰を待っています...(60秒後に不戦勝)' });
           room.disconnectTimers = room.disconnectTimers || {};
@@ -482,14 +493,16 @@ io.on('connection', (socket) => {
             executeDefaultWin(roomId, p.userId).catch(console.error);
           }, 60000);
         } else {
+          // 観戦者、試合終了後、あるいは1人しかいない部屋の場合は即座にクリーンアップ
           room.players = room.players.filter(pl => pl.id !== socket.id);
           if (room.players.length === 0) {
-             if (room.disconnectTimers) {
-                Object.values(room.disconnectTimers).forEach(timer => clearTimeout(timer));
-             }
-             delete rooms[roomId];
+            if (room.disconnectTimers) {
+              Object.values(room.disconnectTimers).forEach(timer => clearTimeout(timer));
+            }
+            delete rooms[roomId];
+          } else {
+            io.to(roomId).emit('update-players', room.players);
           }
-          else io.to(roomId).emit('update-players', room.players);
         }
       }
     });
@@ -497,3 +510,26 @@ io.on('connection', (socket) => {
 });
 
 server.listen(3000, () => console.log('Server is running on port 3000'));
+// 【注意：データ全消去】データベースの全ユーザーデータを完全に初期化するAPI
+app.get('/admin/reset-database-danger', async (req, res) => {
+  try {
+    // 1. データベースのUserコレクションのデータをすべて削除
+    await User.deleteMany({});
+
+    // 2. メモリ上の部屋データもついでに空にする
+    Object.keys(rooms).forEach(roomId => {
+      if (rooms[roomId].disconnectTimers) {
+        Object.values(rooms[roomId].disconnectTimers).forEach(timer => clearTimeout(timer));
+      }
+    });
+    rooms = {};
+
+    // 3. 接続中のユーザーに最新状態（空っぽ）を通知
+    await broadcastState();
+
+    res.send('<h1>データベースの全ユーザーデータ、および部屋データを完全に削除しました。</h1><p>これでIPアドレスの制限もリセットされました。</p>');
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('エラーが発生しました: ' + err.message);
+  }
+});
