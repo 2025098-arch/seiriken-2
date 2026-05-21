@@ -16,12 +16,17 @@ mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log('Connected to MongoDB successfully.'))
   .catch(err => console.error('MongoDB connection error:', err));
 
+// --- 【新規追加】管理者用のシークレットキー ---
+// 環境変数から読み込むか、未設定ならデフォルトの合言葉を使用
+const ADMIN_SECRET = process.env.ADMIN_SECRET || 'my-super-secret-lock-2026';
+
+// --- データベース設計 ---
 const userSchema = new mongoose.Schema({
-  userId: { type: String, required: true },
+  userId: { type: String, required: true, unique: true }, // 一意性を保証
   nickname: { type: String, required: true, unique: true },
   password: { type: String, required: true },
   icon: { type: mongoose.Schema.Types.Mixed },
-  ipAddress: { type: String, required: true },
+  ipAddress: { type: String, required: true }, // 記録用（制約は外す）
   totalWins: { type: Number, default: 0 },
   totalLosses: { type: Number, default: 0 },
   totalDraws: { type: Number, default: 0 },
@@ -35,24 +40,35 @@ const User = mongoose.model('User', userSchema);
 
 let rooms = {};
 
+// --- 【バグ1・2修正】海外サーバー対応の厳格なタイムゾーン・2026年祝日ロジック ---
 function checkClassTime() {
-  const now = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Tokyo"}));
-  const day = now.getDay();
-  if (day === 0) return false; 
-  const mmdd = String(now.getMonth()+1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+  // サーバーのローカル時間に依存せず、確実に日本時間を計算 (UTC + 9時間)
+  const now = new Date();
+  const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+  const jstNow = new Date(utc + (3600000 * 9));
 
-  const holidays = ["01-01", "01-08", "01-12", "02-11", "02-23", "03-20", "04-29", "05-03", "05-04", "05-05", "05-06", "07-15", "07-20", "08-11", "08-12", "09-16", "09-21", "09-22", "09-23", "10-12", "10-14", "11-03", "11-04", "11-23"];
+  const day = jstNow.getDay();
+  if (day === 0) return false; // 日曜日は授業なし
+
+  const mmdd = String(jstNow.getMonth() + 1).padStart(2, '0') + '-' + String(jstNow.getDate()).padStart(2, '0');
+
+  // 2026年（現在の年）の日本の祝日・振替休日データに完全準拠
+  const holidays = [
+    "01-01", "01-12", "02-11", "02-23", "03-20", "04-29", "05-03", 
+    "05-04", "05-05", "05-06", "07-20", "08-11", "08-12", "09-21", 
+    "09-22", "09-23", "10-12", "11-03", "11-23", "11-24"
+  ];
   if (holidays.includes(mmdd)) return false;
 
-  const mins = now.getHours() * 60 + now.getMinutes();
-  const p1 = mins >= 8*60+50 && mins < 9*60+40;
-  const p2 = mins >= 9*60+50 && mins < 10*60+40;
-  const p3 = mins >= 10*60+50 && mins < 11*60+40;
-  const p4 = mins >= 12*60+45 && mins < 13*60+35;
-  const p5 = mins >= 13*60+45 && mins < 14*60+35;
-  const p6 = mins >= 14*60+45 && mins < 15*60+35;
+  const mins = jstNow.getHours() * 60 + jstNow.getMinutes();
+  const p1 = mins >= 8 * 60 + 50 && mins < 9 * 60 + 40;
+  const p2 = mins >= 9 * 60 + 50 && mins < 10 * 60 + 40;
+  const p3 = mins >= 10 * 60 + 50 && mins < 11 * 60 + 40;
+  const p4 = mins >= 12 * 60 + 45 && mins < 13 * 60 + 35;
+  const p5 = mins >= 13 * 60 + 45 && mins < 14 * 60 + 35;
+  const p6 = mins >= 14 * 60 + 45 && mins < 15 * 60 + 35;
 
-  if (day === 6) return p1 || p2 || p3; 
+  if (day === 6) return p1 || p2 || p3; // 土曜は3限まで
   return p1 || p2 || p3 || p4 || p5 || p6; 
 }
 
@@ -83,6 +99,12 @@ setInterval(() => {
               const socketExists = io.sockets.sockets.get(p.id);
               if (!socketExists) {
                 io.to(roomId).emit('game-paused', { reason: 'disconnect', message: '対戦相手の通信が切断されています。復帰を待っています...(60秒後に不戦勝)' });
+
+                // 【バグ5修正】既存タイマーがあれば必ずクリアして重複を防ぐ
+                if (room.disconnectTimers && room.disconnectTimers[p.userId]) {
+                  clearTimeout(room.disconnectTimers[p.userId]);
+                }
+
                 room.disconnectTimers = room.disconnectTimers || {};
                 room.disconnectTimers[p.userId] = setTimeout(() => {
                   executeDefaultWin(roomId, p.userId).catch(console.error);
@@ -96,6 +118,7 @@ setInterval(() => {
   }
 }, 10000);
 
+// --- 立体四目並べ 勝利判定ロジック ---
 const winLines = [];
 for(let i=0; i<4; i++) {
   for(let j=0; j<4; j++) {
@@ -113,21 +136,27 @@ winLines.push([12, 25, 38, 51]); winLines.push([15, 26, 37, 48]);
 function checkWin(board, role) { return winLines.some(l => l.every(idx => board[idx] === role)); }
 function checkDraw(board) { return board.every(c => c !== null); }
 
+// --- 【バグ6修正】パスワードを除外し、上位100名のみを安全にブロードキャスト ---
 async function broadcastState() {
   try {
-    const allUsers = await User.find({});
+    const leaderboardUsers = await User.find({})
+      .select('-password') // パスワードを絶対に送信しない（セキュリティ対策）
+      .sort({ totalWins: -1 })
+      .limit(100); // 描画パフォーマンスを保護
+
     io.emit('room-list', Object.keys(rooms).map(id => ({ 
       id, 
       name: rooms[id].name, 
       playerCount: rooms[id].players.filter(p => p.role !== 'Spectator').length, 
       winner: rooms[id].winner 
     })));
-    io.emit('leaderboard-update', allUsers);
+    io.emit('leaderboard-update', leaderboardUsers);
   } catch (err) {
     console.error('Error in broadcastState:', err);
   }
 }
 
+// --- 【バグ4修正】堅牢な例外・解散処理（ゾンビ部屋の完全排除） ---
 async function executeDefaultWin(roomId, leaverUserId) {
   const room = rooms[roomId];
   if (!room || room.winner) return;
@@ -143,10 +172,10 @@ async function executeDefaultWin(roomId, leaverUserId) {
   const remainingOpponent = room.players.find(p => p.role === opponentRole);
 
   room.winner = opponentRole;
-
   let updatedOpponentStats = null;
 
   try {
+    // 統計データの更新
     const leaverStats = await User.findOne({ userId: leaverUserId });
     if (leaverStats) {
       leaverStats.defaultLosses += 1;
@@ -164,8 +193,13 @@ async function executeDefaultWin(roomId, leaverUserId) {
         io.to(remainingOpponent.id).emit('sync-stats', opponentStats);
       }
     }
-
-    await broadcastState();
+  } catch (err) {
+    console.error('DB Update Error in executeDefaultWin:', err);
+  } finally {
+    // 【最重要】DB処理が成功しようが失敗しようが、部屋の解散とタイマークリアは絶対に執行する（finallyブロック）
+    if (room.disconnectTimers) {
+      Object.values(room.disconnectTimers).forEach(timer => clearTimeout(timer));
+    }
 
     io.to(roomId).emit('win', { 
       winnerRole: opponentRole, 
@@ -176,28 +210,22 @@ async function executeDefaultWin(roomId, leaverUserId) {
       updatedStats: updatedOpponentStats 
     });
 
-    if (room.disconnectTimers) {
-      Object.values(room.disconnectTimers).forEach(timer => clearTimeout(timer));
+    io.to(roomId).emit('forced-leave', { message: '不戦勝・不戦敗が確定したため、この部屋は自動的に解散されました。' });
+
+    const ioRoom = io.sockets.adapter.rooms.get(roomId);
+    if (ioRoom) {
+      Array.from(ioRoom).forEach(id => {
+        const s = io.sockets.sockets.get(id);
+        if (s) s.leave(roomId);
+      });
     }
 
-    if (rooms[roomId]) {
-      io.to(roomId).emit('forced-leave', { message: '不戦勝・不戦敗が確定したため、この部屋は自動的に解散されました。' });
-      const ioRoom = io.sockets.adapter.rooms.get(roomId);
-      if (ioRoom) {
-        const socketIds = Array.from(ioRoom);
-        socketIds.forEach(id => {
-          const s = io.sockets.sockets.get(id);
-          if (s) s.leave(roomId);
-        });
-      }
-      delete rooms[roomId];
-      await broadcastState();
-    }
-  } catch (err) {
-    console.error('Error in executeDefaultWin:', err);
+    delete rooms[roomId];
+    await broadcastState();
   }
 }
 
+// --- Socket.io 通信部 ---
 io.on('connection', (socket) => {
   const forwarded = socket.handshake.headers['x-forwarded-for'];
   let clientIp = socket.handshake.address;
@@ -207,11 +235,11 @@ io.on('connection', (socket) => {
 
   socket.emit('schedule-status', isCurrentlyClassTime);
 
+  // アカウント新規登録
   socket.on('register', async (data) => {
     try {
-      const existingIp = await User.findOne({ ipAddress: clientIp });
-      if (existingIp) return socket.emit('auth-error', 'この端末(ネットワーク)からは既にアカウントが作成されています。');
-
+      // 【バグ3修正】学校WiFi対策: 同一IPの完全ブロックを廃止、連続登録アタック（スパム）のみ10秒制限にする等で運用可能。
+      // ここでは仕様を削らずバグを回避するため、ニックネーム重複チェックを主軸にする
       const existingUser = await User.findOne({ nickname: data.nickname });
       if (existingUser) return socket.emit('auth-error', 'このニックネームは既に使われています。');
 
@@ -221,7 +249,7 @@ io.on('connection', (socket) => {
         nickname: data.nickname, 
         password: data.password, 
         icon: data.icon,
-        ipAddress: clientIp,
+        ipAddress: clientIp, // 記録は残す
         totalWins: 0, totalLosses: 0, totalDraws: 0, wins: 0, losses: 0, defaultWins: 0, defaultLosses: 0
       });
 
@@ -236,6 +264,7 @@ io.on('connection', (socket) => {
     }
   });
 
+  // ログイン
   socket.on('login', async (data) => {
     try {
       const user = await User.findOne({ nickname: data.nickname });
@@ -250,12 +279,17 @@ io.on('connection', (socket) => {
         if (p) {
           p.id = socket.id; p.icon = user.icon;
           socket.join(roomId);
+
+          // 【バグ5修正】再接続が成功したため、不戦勝タイマーを確実に抹殺する
           if (room.disconnectTimers && room.disconnectTimers[user.userId]) {
             clearTimeout(room.disconnectTimers[user.userId]);
             delete room.disconnectTimers[user.userId];
           }
 
           socket.emit('joined-room', { roomId, role: p.role, board: room.board, turn: room.turn, winner: room.winner, players: room.players });
+
+          // 【バグ10修正】部屋に残っている対戦相手に、復帰したことをシステムメッセージ等で明示
+          io.to(roomId).emit('chat-message', { nickname: 'システム', role: '通知', message: `${user.nickname} がゲームに復帰しました！` });
 
           if (!isCurrentlyClassTime && room.isClassPaused) {
              room.isClassPaused = false;
@@ -276,12 +310,15 @@ io.on('connection', (socket) => {
     }
   });
 
+  // 【バグ8修正】一意な userId を使用して確実にプロフィールを特定・更新
   socket.on('update-profile', async (data) => {
     try {
-      const user = await User.findOne({ nickname: socket.nickname });
+      if (!socket.userId) return socket.emit('auth-error', 'セッションが切れています。再度ログインしてください。');
+
+      const user = await User.findOne({ userId: socket.userId });
       if (!user || user.password !== data.oldPassword) return socket.emit('auth-error', '現在のパスワードが違います。');
 
-      if (data.newNickname !== socket.nickname) {
+      if (data.newNickname !== user.nickname) {
         const existingNewUser = await User.findOne({ nickname: data.newNickname });
         if (existingNewUser) return socket.emit('auth-error', 'その新しいニックネームは既に使われています。');
       }
@@ -307,6 +344,7 @@ io.on('connection', (socket) => {
     }
   });
 
+  // チャット
   socket.on('chat-message', ({ roomId, message }) => {
     if (roomId && rooms[roomId]) {
       const p = rooms[roomId].players.find(pl => pl.id === socket.id);
@@ -316,8 +354,12 @@ io.on('connection', (socket) => {
     }
   });
 
+  // 部屋作成
   socket.on('create-room', (name) => {
-    if (isCurrentlyClassTime) return;
+    // 【バグ9修正】授業時間中の場合、何故ダメなのかをクライアントへ通知してフリーズを防ぐ
+    if (isCurrentlyClassTime) {
+      return socket.emit('auth-error', '現在は授業時間中のため、新しく部屋を作成することはできません。');
+    }
     const roomId = Math.random().toString(36).substring(7);
     rooms[roomId] = { name: name || `${socket.nickname}の部屋`, board: Array(64).fill(null), turn: 'X', players: [{ id: socket.id, userId: socket.userId, nickname: socket.nickname, icon: socket.icon, role: 'X' }], winner: null, rematchVotes: [], disconnectTimers: {}, isClassPaused: false };
     socket.join(roomId);
@@ -325,8 +367,12 @@ io.on('connection', (socket) => {
     broadcastState();
   });
 
+  // 部屋参加
   socket.on('join-room', (roomId) => {
-    if (isCurrentlyClassTime) return;
+    // 【バグ9修正】授業時間中の場合、何故ダメなのかをクライアントへ通知してフリーズを防ぐ
+    if (isCurrentlyClassTime) {
+      return socket.emit('auth-error', '現在は授業時間中のため、部屋に参加することはできません。');
+    }
     const room = rooms[roomId];
     if (!room) return;
     const current = room.players.filter(p => p.role !== 'Spectator');
@@ -339,6 +385,7 @@ io.on('connection', (socket) => {
     broadcastState();
   });
 
+  // コマ配置
   socket.on('move', async ({ roomId, pegIndex }) => {
     const room = rooms[roomId];
     if (!room || room.winner || isCurrentlyClassTime || room.isClassPaused) return;
@@ -418,6 +465,7 @@ io.on('connection', (socket) => {
     }
   });
 
+  // リマッチ
   socket.on('rematch', (roomId) => {
     const room = rooms[roomId];
     if (!room || !room.winner || isCurrentlyClassTime) return;
@@ -429,7 +477,6 @@ io.on('connection', (socket) => {
         room.turn = 'X'; 
         room.winner = null; 
         room.rematchVotes = [];
-        // 【🔥修正】「急に置けなくなるバグ」を回避するため、役割（ロール）の入れ替えは行わない
         io.to(roomId).emit('rematch-start', { board: room.board, turn: room.turn, players: room.players });
         broadcastState();
       } else {
@@ -438,6 +485,7 @@ io.on('connection', (socket) => {
     }
   });
 
+  // 部屋退室
   socket.on('leave-room', async (roomId) => {
     const room = rooms[roomId];
     if (!room) return;
@@ -445,20 +493,55 @@ io.on('connection', (socket) => {
     const p = room.players.find(pl => pl.id === socket.id);
     const activeCount = room.players.filter(pl => pl.role === 'X' || pl.role === 'O').length;
 
-    // 試合中に意図的に抜けた場合の処理
+    // 【新規追加】試合終了後にプレイヤーが退出した場合、即座に部屋を解散する
+    if (p && p.role !== 'Spectator' && room.winner) {
+      if (room.disconnectTimers) {
+        Object.values(room.disconnectTimers).forEach(timer => clearTimeout(timer));
+      }
+      io.to(roomId).emit('forced-leave', { message: '対戦相手が退出したため、この部屋は自動的に解散されました。' });
+
+      const ioRoom = io.sockets.adapter.rooms.get(roomId);
+      if (ioRoom) {
+        Array.from(ioRoom).forEach(id => {
+          const s = io.sockets.sockets.get(id);
+          if (s) s.leave(roomId);
+        });
+      }
+      delete rooms[roomId];
+      await broadcastState();
+      return; // 以降の処理をスキップ
+    }
+
+    // 【バグ1修正】授業中の一時停止期間にプレイヤーが能動的に退出した場合、残された対戦相手のフリーズを防ぐため即座に部屋を解散する
+    if (p && p.role !== 'Spectator' && !room.winner && (room.isClassPaused || isCurrentlyClassTime) && activeCount === 2) {
+      if (room.disconnectTimers) {
+        Object.values(room.disconnectTimers).forEach(timer => clearTimeout(timer));
+      }
+      io.to(roomId).emit('forced-leave', { message: '授業中にプレイヤーが退出したため、この部屋は自動的に解散されました。' });
+
+      const ioRoom = io.sockets.adapter.rooms.get(roomId);
+      if (ioRoom) {
+        Array.from(ioRoom).forEach(id => {
+          const s = io.sockets.sockets.get(id);
+          if (s) s.leave(roomId);
+        });
+      }
+      delete rooms[roomId];
+      await broadcastState();
+      return; // 以降の処理をスキップ
+    }
+
     if (p && p.role !== 'Spectator' && !room.winner && !room.isClassPaused && !isCurrentlyClassTime && activeCount === 2) {
       const op = room.players.find(pl => pl.role !== 'Spectator' && pl.id !== socket.id);
 
-      // 【🔥修正】相手が切断中なのに、待てずに自分が退出した場合 → 「相手の逃亡（自分の不戦勝）」として処理
       if (op && room.disconnectTimers && room.disconnectTimers[op.userId]) {
         await executeDefaultWin(roomId, op.userId);
       } else {
-        // 通常の退出
         await executeDefaultWin(roomId, socket.userId);
       }
     }
 
-    // 【🔥修正】ゴースト部屋防止: executeDefaultWinの成否に関わらず、部屋が残っていれば絶対に消す
+    // クリーンアップ
     if (rooms[roomId]) {
       rooms[roomId].players = rooms[roomId].players.filter(pl => pl.id !== socket.id);
       socket.leave(roomId);
@@ -475,6 +558,7 @@ io.on('connection', (socket) => {
     }
   });
 
+  // 切断処理
   socket.on('disconnect', () => {
     Object.keys(rooms).forEach(roomId => {
       const room = rooms[roomId];
@@ -483,11 +567,36 @@ io.on('connection', (socket) => {
       if (p) {
         const activeCount = room.players.filter(pl => pl.role === 'X' || pl.role === 'O').length;
 
-        // 【🔥修正】相手がいない(1人しかいない)状態での切断時は、タイマーを回さず即座に部屋を消す
+        // 【新規追加】試合終了後に対戦プレイヤーが切断した場合も、即座に部屋を解散する
+        if (p.role !== 'Spectator' && room.winner) {
+          if (room.disconnectTimers) {
+            Object.values(room.disconnectTimers).forEach(timer => clearTimeout(timer));
+          }
+          io.to(roomId).emit('forced-leave', { message: '対戦相手が退出したため、この部屋は自動的に解散されました。' });
+
+          const ioRoom = io.sockets.adapter.rooms.get(roomId);
+          if (ioRoom) {
+            Array.from(ioRoom).forEach(id => {
+              const s = io.sockets.sockets.get(id);
+              if (s) s.leave(roomId);
+            });
+          }
+          delete rooms[roomId];
+          broadcastState(); // 非同期だがdisconnectブロックの最後なのでそのまま呼び出し
+          return; // 以降の処理をスキップ
+        }
+
+        // 【バグ7修正】対戦プレイヤーが切断、かつ部屋にアクティブなプレイヤーが「2人」揃っている時のみタイマー起動
         if (p.role !== 'Spectator' && !room.winner && activeCount === 2) {
           if (room.isClassPaused || isCurrentlyClassTime) return;
 
           io.to(roomId).emit('game-paused', { reason: 'disconnect', message: '対戦相手の通信が切断されました。復帰を待っています...(60秒後に不戦勝)' });
+
+          // 【バグ5修正】既存の重複タイマーがあれば必ずクリアしてリークを防ぐ
+          if (room.disconnectTimers && room.disconnectTimers[p.userId]) {
+            clearTimeout(room.disconnectTimers[p.userId]);
+          }
+
           room.disconnectTimers = room.disconnectTimers || {};
           room.disconnectTimers[p.userId] = setTimeout(() => {
             executeDefaultWin(roomId, p.userId).catch(console.error);
@@ -507,29 +616,53 @@ io.on('connection', (socket) => {
       }
     });
   });
+
+  // ==========================================
+  // 【新規追加】運営・管理者専用 Socketイベント
+  // ==========================================
+
+  // 1. 全ユーザーアカウント一覧の取得
+  socket.on('admin-get-users', async (secretKey) => {
+    if (secretKey !== ADMIN_SECRET) {
+      return socket.emit('admin-error', 'シークレットキーが正しくありません。認証に失敗しました。');
+    }
+    try {
+      // 運営用なのでパスワード以外の全データを取得
+      const allUsers = await User.find({}).select('-password').sort({ nickname: 1 });
+      socket.emit('admin-users-list', allUsers);
+    } catch (err) {
+      console.error('Admin Fetch Error:', err);
+      socket.emit('admin-error', 'ユーザー一覧の取得中にサーバーエラーが発生しました。');
+    }
+  });
+
+  // 2. 特定のユーザーアカウントの手動削除
+  socket.on('admin-delete-user', async ({ secretKey, targetUserId }) => {
+    if (secretKey !== ADMIN_SECRET) {
+      return socket.emit('admin-error', 'シークレットキーが正しくありません。削除権限がありません。');
+    }
+    try {
+      const targetUser = await User.findOne({ userId: targetUserId });
+      if (!targetUser) {
+        return socket.emit('admin-error', '指定されたユーザーが見つかりません。すでに削除されている可能性があります。');
+      }
+
+      // データベースからユーザーを完全に削除
+      await User.deleteOne({ userId: targetUserId });
+      console.log(`[ADMIN] User ${targetUser.nickname} (${targetUserId}) was deleted.`);
+
+      // 削除が完了したら、現在の最新リストを再取得して管理画面に送り返す
+      const allUsers = await User.find({}).select('-password').sort({ nickname: 1 });
+      socket.emit('admin-users-list', allUsers);
+
+      // ランキングやロビーの部屋リストも最新状態に更新
+      await broadcastState();
+    } catch (err) {
+      console.error('Admin Delete Error:', err);
+      socket.emit('admin-error', 'ユーザーの削除中にサーバーエラーが発生しました。');
+    }
+  });
+
 });
 
 server.listen(3000, () => console.log('Server is running on port 3000'));
-// 【注意：データ全消去】データベースの全ユーザーデータを完全に初期化するAPI
-app.get('/admin/reset-database-danger', async (req, res) => {
-  try {
-    // 1. データベースのUserコレクションのデータをすべて削除
-    await User.deleteMany({});
-
-    // 2. メモリ上の部屋データもついでに空にする
-    Object.keys(rooms).forEach(roomId => {
-      if (rooms[roomId].disconnectTimers) {
-        Object.values(rooms[roomId].disconnectTimers).forEach(timer => clearTimeout(timer));
-      }
-    });
-    rooms = {};
-
-    // 3. 接続中のユーザーに最新状態（空っぽ）を通知
-    await broadcastState();
-
-    res.send('<h1>データベースの全ユーザーデータ、および部屋データを完全に削除しました。</h1><p>これでIPアドレスの制限もリセットされました。</p>');
-  } catch (err) {
-    console.error(err);
-    res.status(500).send('エラーが発生しました: ' + err.message);
-  }
-});

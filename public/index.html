@@ -65,8 +65,8 @@
       <h2>プロフィール変更</h2>
       <div id="settings-error" class="error-msg"></div>
       <input type="text" id="set-nickname" placeholder="新しいニックネーム" maxlength="10">
-      <input type="password" id="set-old-password" placeholder="現在のパスワード(必須)" pattern="\d{6}" maxlength="6">
-      <input type="password" id="set-new-password" placeholder="新しいパスワード(空で維持)" pattern="\d{6}" maxlength="6">
+      <input type="password" id="set-old-password" placeholder="現在のパスワード(必須)" pattern="\d{6}" maxlength="6" inputmode="numeric">
+      <input type="password" id="set-new-password" placeholder="新しいパスワード(空で維持)" pattern="\d{6}" maxlength="6" inputmode="numeric">
       
       <div class="icon-editor">
         <label>肌の色: <input type="color" id="set-color"></label>
@@ -184,6 +184,11 @@
         <div class="game-chat-area">
           <h3>ルームチャット</h3>
           <div class="chat-container">
+            <div id="emote-container" style="display: flex; gap: 5px; padding: 5px; border-bottom: 1px solid #ddd; background: #fdfdfe;">
+              <button class="emote-btn" data-emote="王手！">王手！</button>
+              <button class="emote-btn" data-emote="チェックメイト！">チェックメイト！</button>
+              <button class="emote-btn" data-emote="大丈夫？">大丈夫？</button>
+            </div>
             <div id="room-chat-box" class="chat-box"></div>
             <div class="chat-input-area">
               <input type="text" id="room-chat-input" placeholder="部屋に送信..." maxlength="50">

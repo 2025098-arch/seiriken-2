@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>運営専用 管理パネル</title>
+  <style>
+    body { font-family: sans-serif; background-color: #f4f4f9; padding: 20px; }
+    .container { max-width: 800px; margin: 0 auto; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    h1 { color: #d32f2f; }
+    .auth-section { margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px solid #ccc; }
+    input[type="password"] { padding: 8px; width: 300px; font-size: 16px; }
+    button { padding: 8px 16px; font-size: 16px; cursor: pointer; background-color: #1976d2; color: white; border: none; border-radius: 4px; }
+    button:hover { background-color: #115293; }
+    button.delete-btn { background-color: #d32f2f; margin-left: 10px; padding: 4px 8px; font-size: 14px; }
+    button.delete-btn:hover { background-color: #9a0007; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+    th { background-color: #f2f2f2; }
+    #message { margin-top: 10px; font-weight: bold; color: #d32f2f; }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <h1>⚙️ 運営専用 管理パネル</h1>
+
+    <div class="auth-section">
+      <p>シークレットキーを入力して認証してください。</p>
+      <input type="password" id="secretKeyInput" placeholder="シークレットキーを入力">
+      <button id="fetchUsersBtn">ユーザー一覧を取得</button>
+      <div id="message"></div>
+    </div>
+
+    <div id="userListSection" style="display: none;">
+      <h2>登録ユーザー一覧 (<span id="userCount">0</span>名)</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>ニックネーム</th>
+            <th>IPアドレス</th>
+            <th>勝</th>
+            <th>負</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody id="userTableBody">
+          </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io();
+    const secretKeyInput = document.getElementById('secretKeyInput');
+    const fetchUsersBtn = document.getElementById('fetchUsersBtn');
+    const messageDiv = document.getElementById('message');
+    const userListSection = document.getElementById('userListSection');
+    const userTableBody = document.getElementById('userTableBody');
+    const userCount = document.getElementById('userCount');
+
+    let currentSecretKey = '';
+
+    // ユーザー取得ボタンを押した時
+    fetchUsersBtn.addEventListener('click', () => {
+      currentSecretKey = secretKeyInput.value.trim();
+      if (!currentSecretKey) {
+        messageDiv.textContent = 'キーを入力してください。';
+        return;
+      }
+      messageDiv.textContent = '取得中...';
+      socket.emit('admin-get-users', currentSecretKey);
+    });
+
+    // サーバーからユーザーリストを受け取った時
+    socket.on('admin-users-list', (users) => {
+      messageDiv.textContent = 'データ取得成功！';
+      messageDiv.style.color = 'green';
+      userListSection.style.display = 'block';
+      userCount.textContent = users.length;
+      userTableBody.innerHTML = '';
+
+      users.forEach(user => {
+        const tr = document.createElement('tr');
+
+        tr.innerHTML = `
+          <td>${user.nickname}</td>
+          <td>${user.ipAddress}</td>
+          <td>${user.totalWins}</td>
+          <td>${user.totalLosses}</td>
+          <td>
+            <button class="delete-btn" onclick="deleteUser('${user.userId}', '${user.nickname}')">BAN(削除)</button>
+          </td>
+        `;
+        userTableBody.appendChild(tr);
+      });
+    });
+
+    // サーバーからエラーを受け取った時
+    socket.on('admin-error', (errMsg) => {
+      messageDiv.textContent = errMsg;
+      messageDiv.style.color = 'red';
+      if (errMsg.includes('認証に失敗')) {
+        userListSection.style.display = 'none';
+      }
+    });
+
+    // ユーザー削除の実行関数
+    window.deleteUser = function(userId, nickname) {
+      if (confirm(`本当にユーザー「${nickname}」を完全に削除(BAN)しますか？\nこの操作は取り消せません。`)) {
+        socket.emit('admin-delete-user', { 
+          secretKey: currentSecretKey, 
+          targetUserId: userId 
+        });
+      }
+    };
+  </script>
+</body>
+</html>

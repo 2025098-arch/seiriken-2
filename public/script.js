@@ -95,7 +95,8 @@ authBtn.addEventListener('click', () => {
   const nickname = authNickname.value.trim();
   const password = authPassword.value;
   if (!nickname || !/^\d{6}$/.test(password)) {
-    return authError.textContent = '名前と6桁の数字パスワードを入力してください。';
+    authError.textContent = '名前と6桁の数字パスワードを入力してください。';
+    return;
   }
 
   if (isRegisterMode) {
@@ -157,10 +158,12 @@ settingsSaveBtn.addEventListener('click', () => {
   const newPassword = document.getElementById('set-new-password').value;
 
   if (!newNickname || !/^\d{6}$/.test(oldPassword)) {
-    return settingsError.textContent = '名前と現在のパスワード(6桁)は必須です。';
+    settingsError.textContent = '名前と現在のパスワード(6桁)は必須です。';
+    return;
   }
   if (newPassword && !/^\d{6}$/.test(newPassword)) {
-    return settingsError.textContent = '新パスワードは6桁の数字にしてください。';
+    settingsError.textContent = '新パスワードは6桁の数字にしてください。';
+    return;
   }
 
   const icon = {
@@ -412,7 +415,7 @@ function createAvatar3D(nickname, iconData) {
     const beardGeo = new THREE.ConeGeometry(0.18, 0.25, 4);
     const beardMesh = new THREE.Mesh(beardGeo, beardMat);
     beardMesh.position.set(0, -0.48, 0.32);
-    beardMesh.rotation.x = -0.2; // 少し前方に傾斜
+    beardMesh.rotation.x = Math.PI - 0.2; // ★180度(Math.PI)回転させて尖った方を下に向ける
     avatarGroup.add(beardMesh);
   }
 
@@ -656,7 +659,37 @@ function resizeCanvas() {
 
 // --- Socket通信イベントハンドリング ---
 socket.on('lobby-chat-message', (data) => appendChatMessage(lobbyChatBox, data));
-socket.on('chat-message', (data) => appendChatMessage(roomChatBox, data));
+
+// --- 修正：チャット受信時にエモートかどうかを判定 ---
+socket.on('chat-message', (data) => {
+  if (data.message.startsWith('[EMOTE]')) {
+    const emoteText = data.message.replace('[EMOTE]', '');
+    showEmoteSplash(emoteText, data.role); // ド派手に表示！
+    data.message = `📢 ${emoteText}`; // チャット履歴にも残す
+    appendChatMessage(roomChatBox, data);
+  } else {
+    appendChatMessage(roomChatBox, data);
+  }
+});
+
+// --- 新規追加：エモートのド派手表示関数 ---
+function showEmoteSplash(text, role) {
+  const splash = document.createElement('div');
+  splash.className = 'emote-text-splash';
+  splash.textContent = text;
+
+  // 送信者のロールに合わせて文字色を変更
+  if (role === 'X') splash.style.color = '#ff4757';
+  else if (role === 'O') splash.style.color = '#1e90ff';
+  else splash.style.color = '#747d8c';
+
+  gameBoard.appendChild(splash);
+
+  // アニメーションが終わる1.5秒後にDOMから削除して重くならないようにする
+  setTimeout(() => {
+    if (splash.parentNode) splash.parentNode.removeChild(splash);
+  }, 1500);
+}
 
 socket.on('room-list', (rooms) => {
   roomListDiv.innerHTML = '';
@@ -732,9 +765,17 @@ socket.on('joined-room', (data) => {
 });
 
 socket.on('update-players', (players) => {
-  roomPlayers = players;
-  updateAvatars();
-  updateStatus(roomPlayers[0]?.role || 'X', currentWinner);
+roomPlayers = players;
+
+// 【新規追加】試合終了後に対戦プレイヤーが退出した場合、残された側も即座にロビーへ強制退去させる
+if (currentRoomId && currentWinner && getActivePlayerCount() < 2) {
+alert('対戦プレイヤーが退出したため、部屋が解散されました。');
+backBtn.click(); // backBtnの処理を流用してUIをロビーへ戻し、念のためサーバーへもleaveを通知
+return; // 以降のアバター更新などを強制ストップ
+}
+
+updateAvatars();
+updateStatus(roomPlayers[0]?.role || 'X', currentWinner);
 });
 
 socket.on('update', (data) => {
@@ -800,6 +841,18 @@ socket.on('game-paused', (data) => {
 socket.on('game-resumed', () => { 
   isPausedByDisconnect = false; 
   if(!isClassTimeLocal) hideOverlay(); 
+});
+
+// --- 新規追加：エモートボタンの送信処理 ---
+document.querySelectorAll('.emote-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    // 観戦者やエラー時、未接続時は押せないようにブロック
+    if (!currentRoomId || myRole === 'Spectator' || isPausedByDisconnect || isClassTimeLocal) return;
+
+    const emoteMsg = btn.getAttribute('data-emote');
+    // 既存のチャット機能をハックして、先頭に [EMOTE] という目印をつけてサーバーに送る
+    socket.emit('chat-message', { roomId: currentRoomId, message: `[EMOTE]${emoteMsg}` });
+  });
 });
 
 // --- アニメーションループ（物理挙動・重力） ---

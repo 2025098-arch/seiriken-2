@@ -39,7 +39,8 @@ h1 { margin: 0; color: #2c3e50; font-size: 1.5em; }
 /* アイコンエディタ（目の色・口の色・ひげ対応の縦幅自動伸縮） */
 .icon-editor { background: #f8f9fa; padding: 15px; border-radius: 8px; display: flex; flex-direction: column; gap: 10px; text-align: left; }
 .icon-editor h3 { margin: 0; font-size: 1em; text-align: center; color: #2c3e50; }
-.icon-editor label { display: flex; justify-content: space-between; align-items: center; font-weight: bold; font-size: 0.9em; margin-vertical: 2px; }
+/* 修正: margin-vertical という無効なプロパティを margin: 2px 0; に変更 */
+.icon-editor label { display: flex; justify-content: space-between; align-items: center; font-weight: bold; font-size: 0.9em; margin: 2px 0; }
 .icon-editor select, .icon-editor input[type="color"] { padding: 5px; border-radius: 4px; border: 1px solid #ccc; width: 140px; box-sizing: border-box; }
 
 #user-info { font-weight: bold; margin-bottom: 10px; color: #555; font-size: 0.95em; }
@@ -66,7 +67,8 @@ button:disabled { background: #ccc !important; cursor: not-allowed; }
 .spectate-btn { background: #747d8c; color: white; }
 
 #leaderboard-table { width: 100%; border-collapse: collapse; text-align: center; font-size: 0.85em; }
-#leaderboard-table th, #leaderboard-table td { padding: 10px 6px; border-bottom: 1px solid #e0e0e0; }
+/* 修正: セル内のテキストが折り返されてレイアウトが崩れないように white-space: nowrap; を追加 */
+#leaderboard-table th, #leaderboard-table td { padding: 10px 6px; border-bottom: 1px solid #e0e0e0; white-space: nowrap; }
 #leaderboard-table th { background: #f1f2f6; color: #2c3e50; font-weight: bold; }
 #leaderboard-table tr:hover { background: #f5f6fa; }
 
@@ -103,3 +105,40 @@ button:disabled { background: #ccc !important; cursor: not-allowed; }
 .overlay-content { display: flex; flex-direction: column; align-items: center; gap: 15px; text-align: center; }
 .spinner { width: 40px; height: 40px; border: 4px solid rgba(255,255,255,0.3); border-top-color: white; border-radius: 50%; animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+/* --- 新規追加：エモート（煽り）ボタン --- */
+.emote-btn {
+  flex: 1;
+  padding: 5px;
+  font-size: 0.85em;
+  background: #ffeaa7;
+  color: #d63031;
+  border: 1px solid #fdcb6e;
+  border-radius: 4px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: 0.1s;
+}
+.emote-btn:hover { background: #fdcb6e; transform: scale(1.05); }
+
+/* --- 新規追加：ド派手なテキスト演出アニメーション --- */
+@keyframes emoteSplash {
+  0% { transform: translate(-50%, -50%) scale(0); opacity: 0; }
+  15% { transform: translate(-50%, -50%) scale(1.2) rotate(-5deg); opacity: 1; }
+  30% { transform: translate(-50%, -50%) scale(1) rotate(5deg); opacity: 1; }
+  80% { transform: translate(-50%, -50%) scale(1) rotate(0deg); opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(1.5); opacity: 0; }
+}
+.emote-text-splash {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 6rem; /* めっちゃでかい */
+  font-weight: 900;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 400;
+  -webkit-text-stroke: 3px white;
+  text-shadow: 0 5px 15px rgba(0,0,0,0.5);
+  animation: emoteSplash 1.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
