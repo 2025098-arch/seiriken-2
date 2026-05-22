@@ -39,7 +39,6 @@ h1 { margin: 0; color: #2c3e50; font-size: 1.5em; }
 /* アイコンエディタ（目の色・口の色・ひげ対応の縦幅自動伸縮） */
 .icon-editor { background: #f8f9fa; padding: 15px; border-radius: 8px; display: flex; flex-direction: column; gap: 10px; text-align: left; }
 .icon-editor h3 { margin: 0; font-size: 1em; text-align: center; color: #2c3e50; }
-/* 修正: margin-vertical という無効なプロパティを margin: 2px 0; に変更 */
 .icon-editor label { display: flex; justify-content: space-between; align-items: center; font-weight: bold; font-size: 0.9em; margin: 2px 0; }
 .icon-editor select, .icon-editor input[type="color"] { padding: 5px; border-radius: 4px; border: 1px solid #ccc; width: 140px; box-sizing: border-box; }
 
@@ -57,7 +56,11 @@ button:disabled { background: #ccc !important; cursor: not-allowed; }
 /* ロビー・チャットレイアウト */
 .lobby-main { display: flex; max-width: 1200px; margin: 0 auto; gap: 20px; padding: 10px; box-sizing: border-box; }
 .lobby-left { flex: 1.2; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); display: flex; flex-direction: column; gap: 15px; }
-.lobby-right { flex: 1.8; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); overflow-x: auto; }
+
+/* 変更点：100人表示でも画面が崩れないよう、最大高さを設定して縦スクロールを有効化 */
+.lobby-right { flex: 1.8; background: white; padding: 0; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); overflow-y: auto; overflow-x: auto; max-height: 75vh; }
+.lobby-right h2 { padding: 20px 20px 10px 20px; margin: 0; position: sticky; top: 0; background: white; z-index: 20; border-bottom: 1px solid #e0e0e0; }
+
 #create-area { display: flex; gap: 10px; }
 #room-name-input { flex: 1; padding: 10px; border: 2px solid #ddd; border-radius: 6px; }
 #room-list { display: flex; flex-direction: column; gap: 8px; max-height: 250px; overflow-y: auto; text-align: left; }
@@ -67,19 +70,20 @@ button:disabled { background: #ccc !important; cursor: not-allowed; }
 .spectate-btn { background: #747d8c; color: white; }
 
 #leaderboard-table { width: 100%; border-collapse: collapse; text-align: center; font-size: 0.85em; }
-/* 修正: セル内のテキストが折り返されてレイアウトが崩れないように white-space: nowrap; を追加 */
 #leaderboard-table th, #leaderboard-table td { padding: 10px 6px; border-bottom: 1px solid #e0e0e0; white-space: nowrap; }
-#leaderboard-table th { background: #f1f2f6; color: #2c3e50; font-weight: bold; }
+/* 変更点：スクロールしても見出しが上にくっつくように sticky を追加 */
+#leaderboard-table th { background: #f1f2f6; color: #2c3e50; font-weight: bold; position: sticky; top: 58px; z-index: 10; box-shadow: 0 2px 2px -1px rgba(0,0,0,0.1); }
 #leaderboard-table tr:hover { background: #f5f6fa; }
 
 .chat-container { display: flex; flex-direction: column; border: 1px solid #ddd; border-radius: 8px; background: #fdfdfe; }
+/* チャットはすでに overflow-y: auto; があるので完璧にスクロールします */
 .chat-box { flex: 1; height: 160px; overflow-y: auto; padding: 10px; text-align: left; font-size: 0.9em; display: flex; flex-direction: column; gap: 5px; box-sizing: border-box; }
 .chat-msg { margin: 2px 0; word-break: break-all; }
 .chat-name { font-weight: bold; color: #2f3542; }
 .chat-role { font-size: 0.75em; padding: 2px 5px; border-radius: 4px; margin-right: 5px; font-weight: bold; }
 .role-X { background: #ff4757; color: white; } 
 .role-O { background: #1e90ff; color: white; } 
-.role-観戦, .role-Spectator { background: #747d8c; color: white; } /* 拡張：両方のロール表記に対応 */
+.role-観戦, .role-Spectator { background: #747d8c; color: white; }
 .chat-input-area { display: flex; border-top: 1px solid #ddd; }
 .chat-input-area input { flex: 1; border: none; padding: 10px; border-radius: 0 0 0 8px; outline: none; }
 .chat-input-area button { border-radius: 0 0 8px 0; padding: 10px 20px; background: #57606f; color: white; }
@@ -105,7 +109,8 @@ button:disabled { background: #ccc !important; cursor: not-allowed; }
 .overlay-content { display: flex; flex-direction: column; align-items: center; gap: 15px; text-align: center; }
 .spinner { width: 40px; height: 40px; border: 4px solid rgba(255,255,255,0.3); border-top-color: white; border-radius: 50%; animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-/* --- 新規追加：エモート（煽り）ボタン --- */
+
+/* --- エモート（煽り）ボタン --- */
 .emote-btn {
   flex: 1;
   padding: 5px;
@@ -120,7 +125,7 @@ button:disabled { background: #ccc !important; cursor: not-allowed; }
 }
 .emote-btn:hover { background: #fdcb6e; transform: scale(1.05); }
 
-/* --- 新規追加：ド派手なテキスト演出アニメーション --- */
+/* --- ド派手なテキスト演出アニメーション --- */
 @keyframes emoteSplash {
   0% { transform: translate(-50%, -50%) scale(0); opacity: 0; }
   15% { transform: translate(-50%, -50%) scale(1.2) rotate(-5deg); opacity: 1; }
@@ -133,7 +138,7 @@ button:disabled { background: #ccc !important; cursor: not-allowed; }
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  font-size: 6rem; /* めっちゃでかい */
+  font-size: 6rem;
   font-weight: 900;
   white-space: nowrap;
   pointer-events: none;

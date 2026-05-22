@@ -73,6 +73,7 @@ function checkClassTime() {
 }
 
 let isCurrentlyClassTime = false;
+// 【修正】授業中モードの解除を「すぐ」にするため、チェック間隔を10秒から3秒に高速化
 setInterval(() => {
   const current = checkClassTime();
   if (current !== isCurrentlyClassTime) {
@@ -116,7 +117,7 @@ setInterval(() => {
       });
     }
   }
-}, 10000);
+}, 3000);
 
 // --- 立体四目並べ 勝利判定ロジック ---
 const winLines = [];
@@ -142,7 +143,7 @@ async function broadcastState() {
     const leaderboardUsers = await User.find({})
       .select('-password') // パスワードを絶対に送信しない（セキュリティ対策）
       .sort({ totalWins: -1 })
-      .limit(100); // 描画パフォーマンスを保護
+      .limit(100); // 描画パフォーマンスを保護（最大100人）
 
     io.emit('room-list', Object.keys(rooms).map(id => ({ 
       id, 
@@ -346,6 +347,9 @@ io.on('connection', (socket) => {
 
   // チャット
   socket.on('chat-message', ({ roomId, message }) => {
+    // 【修正】undefined名のバグ防止: 認証されていないユーザーのチャットを弾く
+    if (!socket.nickname) return;
+
     if (roomId && rooms[roomId]) {
       const p = rooms[roomId].players.find(pl => pl.id === socket.id);
       io.to(roomId).emit('chat-message', { nickname: socket.nickname, role: p ? (p.role==='Spectator'?'観戦':p.role) : '??', message });
@@ -356,6 +360,9 @@ io.on('connection', (socket) => {
 
   // 部屋作成
   socket.on('create-room', (name) => {
+    // 【修正】undefined名のバグ防止
+    if (!socket.nickname || !socket.userId) return socket.emit('auth-error', 'セッションが切れています。再度ログインしてください。');
+
     // 【バグ9修正】授業時間中の場合、何故ダメなのかをクライアントへ通知してフリーズを防ぐ
     if (isCurrentlyClassTime) {
       return socket.emit('auth-error', '現在は授業時間中のため、新しく部屋を作成することはできません。');
@@ -369,12 +376,22 @@ io.on('connection', (socket) => {
 
   // 部屋参加
   socket.on('join-room', (roomId) => {
+    // 【修正】undefined名のバグ防止
+    if (!socket.nickname || !socket.userId) return socket.emit('auth-error', 'セッションが切れています。再度ログインしてください。');
+
     // 【バグ9修正】授業時間中の場合、何故ダメなのかをクライアントへ通知してフリーズを防ぐ
     if (isCurrentlyClassTime) {
       return socket.emit('auth-error', '現在は授業時間中のため、部屋に参加することはできません。');
     }
     const room = rooms[roomId];
     if (!room) return;
+
+    // 【新規追加・修正】自分と対戦できるバグ（多重ログイン・同一ブラウザでの参加）を完全にブロック
+    const isAlreadyInRoom = room.players.some(p => p.userId === socket.userId);
+    if (isAlreadyInRoom) {
+      return socket.emit('auth-error', 'すでにこの部屋に参加しています。（自分との対戦はできません）');
+    }
+
     const current = room.players.filter(p => p.role !== 'Spectator');
     let role = 'Spectator';
     if (current.length < 2) role = current.length === 0 ? 'X' : (current[0].role === 'X' ? 'O' : 'X');
@@ -387,6 +404,9 @@ io.on('connection', (socket) => {
 
   // コマ配置
   socket.on('move', async ({ roomId, pegIndex }) => {
+    // 【修正】undefinedバグ等の防御壁
+    if (!socket.userId) return;
+
     const room = rooms[roomId];
     if (!room || room.winner || isCurrentlyClassTime || room.isClassPaused) return;
     const p = room.players.find(pl => pl.id === socket.id);

@@ -61,6 +61,8 @@ let isRegisterMode = false;
 let isClassTimeLocal = false; 
 let isPausedByDisconnect = false;
 let currentWinner = null; // 退室ボタンの表記切り替え用に勝者状態を保持
+let currentTurn = 'X'; // 観戦者入退室時の表示バグ修正用：現在のターンを記憶
+let lastEmoteTime = 0; // エモートの10秒クールタイム管理用
 
 // --- 退出ボタン表記の動的切り替えロジック ---
 function updateBackBtnText() {
@@ -105,10 +107,10 @@ authBtn.addEventListener('click', () => {
       hairColor: document.getElementById('icon-hair-color').value,
       hair: document.getElementById('icon-hair').value, 
       eye: document.getElementById('icon-eye').value, 
-      eyeColor: document.getElementById('icon-eye-color').value, // 拡張：目の色
+      eyeColor: document.getElementById('icon-eye-color').value,
       mouth: document.getElementById('icon-mouth').value, 
-      mouthColor: document.getElementById('icon-mouth-color').value, // 拡張：口の色
-      beard: document.getElementById('icon-beard').value // 拡張：ひげの種類
+      mouthColor: document.getElementById('icon-mouth-color').value,
+      beard: document.getElementById('icon-beard').value
     };
     socket.emit('register', { nickname, password, icon });
   } else {
@@ -171,16 +173,16 @@ settingsSaveBtn.addEventListener('click', () => {
     hairColor: document.getElementById('set-hair-color').value,
     hair: document.getElementById('set-hair').value, 
     eye: document.getElementById('set-eye').value,
-    eyeColor: document.getElementById('set-eye-color').value, // 拡張
+    eyeColor: document.getElementById('set-eye-color').value,
     mouth: document.getElementById('set-mouth').value,
-    mouthColor: document.getElementById('set-mouth-color').value, // 拡張
-    beard: document.getElementById('set-beard').value // 拡張
+    mouthColor: document.getElementById('set-mouth-color').value,
+    beard: document.getElementById('set-beard').value
   };
   socket.emit('update-profile', { newNickname, oldPassword, newPassword, icon });
 });
 
 function updateUserDisplay() {
-  userInfo.innerHTML = `ユーザー: <strong>${myUser.nickname}</strong> | 
+  userInfo.innerHTML = `ユーザー: <strong>${myUser.nickname || '不明'}</strong> | 
     【戦績】 総勝:${myUser.totalWins} 総敗:${myUser.totalLosses} 分:${myUser.totalDraws} 
     (勝:${myUser.wins} 敗:${myUser.losses} 不勝:${myUser.defaultWins} 不敗:${myUser.defaultLosses})`;
 }
@@ -277,7 +279,7 @@ const xMat = new THREE.MeshStandardMaterial({ color: 0xff4757, metalness: 0.2, r
 const oMat = new THREE.MeshStandardMaterial({ color: 0x1e90ff, metalness: 0.2, roughness: 0.1 });
 let pieceMeshes = Array(64).fill(null);
 
-// --- 🎨 3Dパーツ組み立てアバター生成 (目の色・口の色・ひげ対応完全拡張版) ---
+// --- 🎨 3Dパーツ組み立てアバター生成 ---
 function createAvatar3D(nickname, iconData) {
   const avatarGroup = new THREE.Group();
 
@@ -320,7 +322,7 @@ function createAvatar3D(nickname, iconData) {
     avatarGroup.add(twinL, twinR);
   }
 
-  // 目のマテリアル（拡張：カスタム目の色対応）
+  // 目のマテリアル
   const customEyeColor = iconData?.eyeColor || '#111111';
   const eyeMat = new THREE.MeshStandardMaterial({ color: customEyeColor });
 
@@ -330,35 +332,29 @@ function createAvatar3D(nickname, iconData) {
     const eyeL = new THREE.Mesh(eyeGeoL, eyeMat);
     eyeL.position.set(-0.22, 0.15, 0.48);
     eyeL.rotation.z = -0.3;
-
     const eyeR = eyeL.clone();
     eyeR.position.x = 0.22;
     eyeR.rotation.z = 0.3;
-
     avatarGroup.add(eyeL, eyeR);
   } else if (iconData?.eye === 'happy') {
     const eyeGeoL = new THREE.BoxGeometry(0.22, 0.08, 0.1);
     const eyeL = new THREE.Mesh(eyeGeoL, eyeMat);
     eyeL.position.set(-0.22, 0.18, 0.48);
     eyeL.rotation.z = 0.25;
-
     const eyeR = eyeL.clone();
     eyeR.position.x = 0.22;
     eyeR.rotation.z = -0.25;
-
     avatarGroup.add(eyeL, eyeR);
   } else {
     const eyeGeo = new THREE.SphereGeometry(0.1, 16, 16);
     const eyeL = new THREE.Mesh(eyeGeo, eyeMat);
     eyeL.position.set(-0.22, 0.15, 0.49);
-
     const eyeR = eyeL.clone();
     eyeR.position.x = 0.22;
-
     avatarGroup.add(eyeL, eyeR);
   }
 
-  // 口のマテリアル（拡張：カスタム口の色対応）
+  // 口のマテリアル
   const customMouthColor = iconData?.mouthColor || '#331111';
   const mouthMat = new THREE.MeshStandardMaterial({ color: customMouthColor });
 
@@ -366,25 +362,21 @@ function createAvatar3D(nickname, iconData) {
     const mouthGeo = new THREE.BoxGeometry(0.3, 0.06, 0.1);
     const mouth = new THREE.Mesh(mouthGeo, mouthMat);
     mouth.position.set(0, -0.15, 0.5);
-
     const edgeGeo = new THREE.BoxGeometry(0.08, 0.1, 0.1);
     const edgeL = new THREE.Mesh(edgeGeo, mouthMat);
     edgeL.position.set(-0.15, -0.12, 0.5);
     const edgeR = edgeL.clone();
     edgeR.position.x = 0.15;
-
     avatarGroup.add(mouth, edgeL, edgeR);
   } else if (iconData?.mouth === 'sad') {
     const mouthGeo = new THREE.BoxGeometry(0.3, 0.06, 0.1);
     const mouth = new THREE.Mesh(mouthGeo, mouthMat);
     mouth.position.set(0, -0.12, 0.5);
-
     const edgeGeo = new THREE.BoxGeometry(0.08, 0.1, 0.1);
     const edgeL = new THREE.Mesh(edgeGeo, mouthMat);
     edgeL.position.set(-0.15, -0.15, 0.5);
     const edgeR = edgeL.clone();
     edgeR.position.x = 0.15;
-
     avatarGroup.add(mouth, edgeL, edgeR);
   } else {
     const mouthGeo = new THREE.BoxGeometry(0.25, 0.06, 0.1);
@@ -393,29 +385,25 @@ function createAvatar3D(nickname, iconData) {
     avatarGroup.add(mouth);
   }
 
-  // --- 拡張新規追加：ひげパーツの3D描画処理 ---
+  // ひげパーツ
   const beardStyle = iconData?.beard || 'none';
-  const beardMat = new THREE.MeshStandardMaterial({ color: hairColor, roughness: 0.8 }); // ひげの色は髪色に追従
+  const beardMat = new THREE.MeshStandardMaterial({ color: hairColor, roughness: 0.8 }); 
 
   if (beardStyle === 'mustache' || beardStyle === 'full') {
-    // 口ひげ (ダンディな左右にハの字のひげ)
     const mustacheL = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.05, 0.06), beardMat);
     mustacheL.position.set(-0.08, -0.07, 0.52);
     mustacheL.rotation.z = -0.15;
-
     const mustacheR = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.05, 0.06), beardMat);
     mustacheR.position.set(0.08, -0.07, 0.52);
     mustacheR.rotation.z = 0.15;
-
     avatarGroup.add(mustacheL, mustacheR);
   }
 
   if (beardStyle === 'beard' || beardStyle === 'full') {
-    // あごひげ (あご下にフィットする3Dコーン・ブロック)
     const beardGeo = new THREE.ConeGeometry(0.18, 0.25, 4);
     const beardMesh = new THREE.Mesh(beardGeo, beardMat);
     beardMesh.position.set(0, -0.48, 0.32);
-    beardMesh.rotation.x = Math.PI - 0.2; // ★180度(Math.PI)回転させて尖った方を下に向ける
+    beardMesh.rotation.x = Math.PI - 0.2; 
     avatarGroup.add(beardMesh);
   }
 
@@ -546,10 +534,10 @@ function updateStatus(turn, winnerRole, isDefault = false, leaverName = '') {
     }
 
     const p = roomPlayers.find(pl => pl.role === winnerRole);
-    const winnerName = p ? p.nickname : winnerRole;
+    const winnerName = p ? (p.nickname || p.role) : winnerRole;
 
     if (isDefault) {
-      statusDiv.textContent = `不戦勝！ ${leaverName}が退出したため、${winnerName} の勝利です！ 🎉`;
+      statusDiv.textContent = `不戦勝！ ${leaverName || '相手'}が退出したため、${winnerName} の勝利です！ 🎉`;
     } else {
       statusDiv.textContent = `${winnerName} の勝利です！ 🎉`;
     }
@@ -557,7 +545,7 @@ function updateStatus(turn, winnerRole, isDefault = false, leaverName = '') {
   } else {
     rematchArea.style.display = 'none';
     const p = roomPlayers.find(pl => pl.role === turn);
-    const turnName = p ? p.nickname : turn;
+    const turnName = p ? (p.nickname || p.role) : turn;
 
     if (myRole === 'Spectator') {
       statusDiv.textContent = `観戦中 (ターン: ${turnName})`;
@@ -584,14 +572,18 @@ function appendChatMessage(box, data) {
 
   const nameEl = document.createElement('span');
   nameEl.classList.add('chat-name');
-  nameEl.textContent = data.nickname + ': ';
+  nameEl.textContent = (data.nickname || '不明なユーザー') + ': ';
 
   const textEl = document.createTextNode(data.message);
 
   msgEl.appendChild(nameEl);
   msgEl.appendChild(textEl);
   box.appendChild(msgEl);
-  box.scrollTop = box.scrollHeight;
+
+  // 確実に最下部へスクロールさせる
+  requestAnimationFrame(() => {
+    box.scrollTop = box.scrollHeight;
+  });
 }
 
 lobbyChatSendBtn.addEventListener('click', () => {
@@ -623,9 +615,15 @@ backBtn.addEventListener('click', () => {
   }
   currentRoomId = '';
   currentWinner = null;
+  currentTurn = 'X'; // 退出時にターン情報リセット
   gameContainer.style.display = 'none';
   lobbyContainer.style.display = 'block';
   roomChatBox.innerHTML = '';
+
+  // 退出時にリマッチエリアと設定ボタンの状態をリセット（バグ修正）
+  rematchArea.style.display = 'none';
+  rematchBtn.style.display = 'inline-block';
+  openSettingsBtn.style.display = 'block'; 
 });
 
 rematchBtn.addEventListener('click', () => {
@@ -660,7 +658,6 @@ function resizeCanvas() {
 // --- Socket通信イベントハンドリング ---
 socket.on('lobby-chat-message', (data) => appendChatMessage(lobbyChatBox, data));
 
-// --- 修正：チャット受信時にエモートかどうかを判定 ---
 socket.on('chat-message', (data) => {
   if (data.message.startsWith('[EMOTE]')) {
     const emoteText = data.message.replace('[EMOTE]', '');
@@ -672,20 +669,18 @@ socket.on('chat-message', (data) => {
   }
 });
 
-// --- 新規追加：エモートのド派手表示関数 ---
+// --- エモートのド派手表示関数 ---
 function showEmoteSplash(text, role) {
   const splash = document.createElement('div');
   splash.className = 'emote-text-splash';
   splash.textContent = text;
 
-  // 送信者のロールに合わせて文字色を変更
   if (role === 'X') splash.style.color = '#ff4757';
   else if (role === 'O') splash.style.color = '#1e90ff';
   else splash.style.color = '#747d8c';
 
   gameBoard.appendChild(splash);
 
-  // アニメーションが終わる1.5秒後にDOMから削除して重くならないようにする
   setTimeout(() => {
     if (splash.parentNode) splash.parentNode.removeChild(splash);
   }, 1500);
@@ -729,11 +724,12 @@ socket.on('room-list', (rooms) => {
 socket.on('leaderboard-update', (data) => {
   leaderboardBody.innerHTML = '';
   data.sort((a, b) => b.totalWins - a.totalWins);
-  data.forEach((user, index) => {
+  // 最大100人までに制限
+  data.slice(0, 100).forEach((user, index) => {
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td><strong>${index + 1}</strong></td>
-      <td>${user.nickname}</td>
+      <td>${user.nickname || '不明'}</td>
       <td style="color:#2ed573;font-weight:bold;">${user.totalWins}</td>
       <td style="color:#ff4757;">${user.totalLosses}</td>
       <td>${user.totalDraws}</td>
@@ -756,33 +752,38 @@ socket.on('joined-room', (data) => {
   myRole = data.role;
   roomPlayers = data.players;
   currentWinner = data.winner;
+  currentTurn = data.turn; // 現在のターンを保存
+
   lobbyContainer.style.display = 'none';
   gameContainer.style.display = 'block';
+  openSettingsBtn.style.display = 'none'; // 試合中は設定ボタンを消す
+
   resizeCanvas();
   updateAvatars();
   renderBoard(data.board, false);
-  updateStatus(data.turn, data.winner);
+  updateStatus(currentTurn, data.winner);
 });
 
 socket.on('update-players', (players) => {
-roomPlayers = players;
+  roomPlayers = players;
 
-// 【新規追加】試合終了後に対戦プレイヤーが退出した場合、残された側も即座にロビーへ強制退去させる
-if (currentRoomId && currentWinner && getActivePlayerCount() < 2) {
-alert('対戦プレイヤーが退出したため、部屋が解散されました。');
-backBtn.click(); // backBtnの処理を流用してUIをロビーへ戻し、念のためサーバーへもleaveを通知
-return; // 以降のアバター更新などを強制ストップ
-}
+  // 試合終了後に対戦プレイヤーが退出した場合、残された側も即座にロビーへ強制退去させる
+  if (currentRoomId && currentWinner && getActivePlayerCount() < 2) {
+    alert('対戦プレイヤーが退出したため、部屋が解散されました。');
+    backBtn.click(); // backBtnの処理を流用してUIをロビーへ戻し、念のためサーバーへもleaveを通知
+    return; // 以降のアバター更新などを強制ストップ
+  }
 
-updateAvatars();
-updateStatus(roomPlayers[0]?.role || 'X', currentWinner);
+  updateAvatars();
+  updateStatus(currentTurn, currentWinner); // 保存しておいたターンを使うことで表示バグ修正！
 });
 
 socket.on('update', (data) => {
   if (!currentRoomId) return;
   currentWinner = null;
+  currentTurn = data.turn; // ターン情報を更新
   renderBoard(data.board, true);
-  updateStatus(data.turn, null);
+  updateStatus(currentTurn, null);
 });
 
 socket.on('win', (data) => {
@@ -791,7 +792,7 @@ socket.on('win', (data) => {
   roomPlayers = data.players;
   currentWinner = data.winnerRole;
   renderBoard(data.board, !data.isDefault);
-  updateStatus(null, data.winnerRole, data.isDefault, data.leaverName);
+  updateStatus(currentTurn, data.winnerRole, data.isDefault, data.leaverName);
 });
 
 socket.on('draw', (data) => {
@@ -799,7 +800,7 @@ socket.on('draw', (data) => {
   roomPlayers = data.players;
   currentWinner = 'Draw';
   renderBoard(data.board, true);
-  updateStatus(null, 'Draw');
+  updateStatus(currentTurn, 'Draw');
 });
 
 // --- 要望要件：不戦勝時にルームが消滅した際の強制退出ハンドリング ---
@@ -807,9 +808,16 @@ socket.on('forced-leave', (data) => {
   alert(data.message);
   currentRoomId = '';
   currentWinner = null;
+  currentTurn = 'X';
   gameContainer.style.display = 'none';
   lobbyContainer.style.display = 'block';
   roomChatBox.innerHTML = '';
+
+  // 退出時にリセット
+  rematchArea.style.display = 'none';
+  rematchBtn.style.display = 'inline-block';
+  openSettingsBtn.style.display = 'block'; 
+
   if (!isClassTimeLocal) hideOverlay();
   isPausedByDisconnect = false;
   updateBackBtnText();
@@ -818,7 +826,7 @@ socket.on('forced-leave', (data) => {
 socket.on('rematch-voted', (role) => {
   const p = roomPlayers.find(pl => pl.role === role);
   if (myRole !== role && myRole !== 'Spectator' && p) {
-    rematchStatus.textContent = `${p.nickname}さんが再戦を希望しています！`;
+    rematchStatus.textContent = `${p.nickname || p.role}さんが再戦を希望しています！`;
   }
 });
 
@@ -826,9 +834,10 @@ socket.on('rematch-start', (data) => {
   roomPlayers = data.players;
   myRole = roomPlayers.find(p => p.userId === myUser.userId)?.role || 'Spectator';
   currentWinner = null;
+  currentTurn = data.turn; // ターン更新
   updateAvatars();
   renderBoard(data.board, false);
-  updateStatus(data.turn, null);
+  updateStatus(currentTurn, null);
   rematchArea.style.display = 'none';
   alert('役割を交代して新しい試合を開始します！');
 });
@@ -843,14 +852,27 @@ socket.on('game-resumed', () => {
   if(!isClassTimeLocal) hideOverlay(); 
 });
 
-// --- 新規追加：エモートボタンの送信処理 ---
+// --- エモートボタンの送信処理（制限機能付き） ---
 document.querySelectorAll('.emote-btn').forEach(btn => {
   btn.addEventListener('click', () => {
-    // 観戦者やエラー時、未接続時は押せないようにブロック
     if (!currentRoomId || myRole === 'Spectator' || isPausedByDisconnect || isClassTimeLocal) return;
 
+    // 対戦相手がいない（待機中）の場合はブロック
+    if (getActivePlayerCount() < 2) {
+      alert('対戦相手が揃うまでエモートは使用できません。');
+      return;
+    }
+
+    // 10秒に1回しか押せないクールダウン処理
+    const now = Date.now();
+    if (now - lastEmoteTime < 10000) {
+      const remain = Math.ceil((10000 - (now - lastEmoteTime)) / 1000);
+      alert(`エモートは連続で使用できません。あと ${remain} 秒お待ちください。`);
+      return;
+    }
+    lastEmoteTime = now;
+
     const emoteMsg = btn.getAttribute('data-emote');
-    // 既存のチャット機能をハックして、先頭に [EMOTE] という目印をつけてサーバーに送る
     socket.emit('chat-message', { roomId: currentRoomId, message: `[EMOTE]${emoteMsg}` });
   });
 });
