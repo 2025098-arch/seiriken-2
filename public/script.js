@@ -48,6 +48,9 @@ const roomChatInput = document.getElementById('room-chat-input');
 const roomChatSendBtn = document.getElementById('room-chat-send-btn');
 const leaderboardBody = document.getElementById('leaderboard-body');
 
+// 🔥 【新規追加】緊急解除ボタンのDOM要素取得
+const emergencyBypassBtn = document.getElementById('emergency-bypass-btn');
+
 // --- 状態管理変数 ---
 let myUser = null; 
 let myRole = '';
@@ -204,6 +207,21 @@ socket.on('schedule-status', (isClass) => {
     if (!isPausedByDisconnect) hideOverlay();
   }
 });
+
+// 🔥 【新規追加】緊急解除ボタンのクリックイベント
+if (emergencyBypassBtn) {
+  emergencyBypassBtn.addEventListener('click', () => {
+    const confirmed = confirm(
+      "【最終確認】\n本当に現在の時限のロックを解除しますか？\n" +
+      "※実際の休み時間や放課後なのにサーバーがロックされている場合のみ使用してください。\n" +
+      "※授業中に嘘の解除を行った場合の責任は一切負いません。"
+    );
+    if (confirmed) {
+      // サーバー側の緊急解除イベントを発火
+      socket.emit('emergency-bypass-class');
+    }
+  });
+}
 
 // --- 2D パッド生成 ---
 for (let j = 0; j < 4; j++) {
@@ -857,7 +875,7 @@ document.querySelectorAll('.emote-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     if (!currentRoomId || myRole === 'Spectator' || isPausedByDisconnect || isClassTimeLocal) return;
 
-    // 対戦相手がいない（待機中）の場合はブロック
+    // 对戦相手がいない（待機中）の場合はブロック
     if (getActivePlayerCount() < 2) {
       alert('対戦相手が揃うまでエモートは使用できません。');
       return;
