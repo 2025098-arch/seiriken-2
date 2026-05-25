@@ -114,6 +114,9 @@ setInterval(() => {
 
           room.players.forEach(p => {
             if (p.role !== 'Spectator') {
+              // 【AI対応】AIプレイヤーはソケットを持たないため、誤判定による不戦勝タイマーの起動を防ぐ
+              if (room.isAiRoom && p.role === 'O') return;
+
               const socketExists = io.sockets.sockets.get(p.id);
               if (!socketExists) {
                 io.to(roomId).emit('game-paused', { reason: 'disconnect', message: '対戦相手の通信が切断されています。復帰を待っています...(60秒後に不戦勝)' });
@@ -129,6 +132,11 @@ setInterval(() => {
               }
             }
           });
+
+          // 【AI対応】ロック解除で再開した際、AIのターン（O）であれば自動思考をキック
+          if (room.isAiRoom && room.turn === 'O' && !room.winner) {
+            setTimeout(() => { makeAiMove(roomId).catch(console.error); }, 800);
+          }
         }
       });
     }
@@ -144,7 +152,7 @@ for(let i=0; i<4; i++) {
     winLines.push([0*16+i*4+j, 1*16+i*4+j, 2*16+i*4+j, 3*16+i*4+j]);
   }
   winLines.push([i*16+0, i*16+5, i*16+10, i*16+15]); winLines.push([i*16+3, i*16+6, i*16+9, i*16+12]);
-  winLines.push([0*16+i*4+0, 1*16+i*4+1, 2*16+i*4+2, 3*16+i*4+3]); winLines.push([0*16+i*4+3, 1*16+i*4+2, 2*16+i*4+1, 3*16+i*4+0]);
+  winLines.push([0*16+i*4+0, 1*16+i*4+1, 2*16+i*4+2, 3*16+i*4+3]); winLines.push([0*16+i*4+3, 1*16+i*4+2, 2*16+i*4+1, 3*16+0*4+i]);
   winLines.push([0*16+0*4+i, 1*16+1*4+i, 2*16+2*4+i, 3*16+3*4+i]); winLines.push([0*16+3*4+i, 1*16+2*4+i, 2*16+1*4+i, 3*16+0*4+i]);
 }
 winLines.push([0, 21, 42, 63]); winLines.push([3, 22, 41, 60]);
@@ -152,6 +160,117 @@ winLines.push([12, 25, 38, 51]); winLines.push([15, 26, 37, 48]);
 
 function checkWin(board, role) { return winLines.some(l => l.every(idx => board[idx] === role)); }
 function checkDraw(board) { return board.every(c => c !== null); }
+
+// --- 【新規追加】AI（CPU）の思考・配置ロジック ---
+async function makeAiMove(roomId) {
+  const room = rooms[roomId];
+  // 部屋がない、既に決着している、授業中ロックされている、AIのターンでない場合は即座に弾く
+  if (!room || room.winner || isCurrentlyClassTime || room.isClassPaused || room.turn !== 'O') return;
+
+  // 16本のペグ（縦棒）のうち、まだ4つ埋まっていない有効な選択肢をリストアップ
+  const validMoves = [];
+  for (let peg = 0; peg < 16; peg++) {
+    let z = -1;
+    for (let i = 0; i < 4; i++) {
+      if (!room.board[i * 16 + peg]) { z = i; break; }
+    }
+    if (z !== -1) {
+      validMoves.push({ peg, z, boardIdx: z * 16 + peg });
+    }
+  }
+
+  if (validMoves.length === 0) return;
+
+  let selectedMove = null;
+
+  // 【思考段階 1】自分がこの一手で勝てる（王手）マスがあるかシミュレート
+  for (const move of validMoves) {
+    const tempBoard = [...room.board];
+    tempBoard[move.boardIdx] = 'O';
+    if (checkWin(tempBoard, 'O')) {
+      selectedMove = move;
+      break;
+    }
+  }
+
+  // 【思考段階 2】相手が次の手で勝ってしまう（防塞すべき）マスがあるかシミュレート
+  if (!selectedMove) {
+    for (const move of validMoves) {
+      const tempBoard = [...room.board];
+      tempBoard[move.boardIdx] = 'X';
+      if (checkWin(tempBoard, 'X')) {
+        selectedMove = move;
+        break;
+      }
+    }
+  }
+
+  // 【思考段階 3】上記に該当しなければ、有効なマスからランダムに選択
+  if (!selectedMove) {
+    const randomIdx = Math.floor(Math.random() * validMoves.length);
+    selectedMove = validMoves[randomIdx];
+  }
+
+  // コマを配置
+  room.board[selectedMove.boardIdx] = 'O';
+
+  try {
+    if (checkWin(room.board, 'O')) {
+      room.winner = 'O';
+      const p = room.players.find(pl => pl.role === 'X'); // プレイヤー
+
+      let lStats = null;
+      if (p) {
+        const loserStats = await User.findOne({ userId: p.userId });
+        if (loserStats) {
+          loserStats.losses++; loserStats.totalLosses++;
+          await loserStats.save();
+          lStats = loserStats;
+          io.to(p.id).emit('sync-stats', loserStats);
+        }
+      }
+
+      await broadcastState();
+
+      io.to(roomId).emit('win', {
+        winnerRole: 'O',
+        board: room.board,
+        players: room.players,
+        isDefault: false,
+        updatedStats: { winner: null, loser: lStats }
+      });
+
+    } else if (checkDraw(room.board)) {
+      room.winner = 'Draw';
+      const p = room.players.find(pl => pl.role === 'X');
+      let drawStatsList = [];
+
+      if (p) {
+        const st = await User.findOne({ userId: p.userId });
+        if (st) {
+          st.totalDraws++;
+          await st.save();
+          drawStatsList.push(st);
+          io.to(p.id).emit('sync-stats', st);
+        }
+      }
+
+      await broadcastState();
+
+      io.to(roomId).emit('draw', {
+        board: room.board,
+        players: room.players,
+        updatedStats: drawStatsList
+      });
+
+    } else {
+      room.turn = 'X';
+      io.to(roomId).emit('update', { board: room.board, turn: room.turn });
+    }
+  } catch (err) {
+    console.error('AI Move processing error:', err);
+  }
+}
 
 // --- パスワードを除外し、上位100名のみを安全にブロードキャスト ---
 async function broadcastState() {
@@ -308,6 +427,11 @@ io.on('connection', (socket) => {
 
           if (!isCurrentlyClassTime && !room.isClassPaused) {
              io.to(roomId).emit('game-resumed');
+
+             // 【AI対応】復帰時にAI部屋かつAIのターンであれば、即座に思考プロセスを再開
+             if (room.isAiRoom && room.turn === 'O' && !room.winner) {
+               setTimeout(() => { makeAiMove(roomId).catch(console.error); }, 800);
+             }
           } else {
              socket.emit('game-paused', { reason: 'classTime', message: '授業中のため、ゲームは一時停止されています。' });
           }
@@ -367,7 +491,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // 部屋作成
+  // 部屋作成（通常対人戦）
   socket.on('create-room', (name) => {
     if (!socket.nickname || !socket.userId) return socket.emit('auth-error', 'セッションが切れています。再度ログインしてください。');
 
@@ -376,6 +500,33 @@ io.on('connection', (socket) => {
     }
     const roomId = Math.random().toString(36).substring(7);
     rooms[roomId] = { name: name || `${socket.nickname}の部屋`, board: Array(64).fill(null), turn: 'X', players: [{ id: socket.id, userId: socket.userId, nickname: socket.nickname, icon: socket.icon, role: 'X' }], winner: null, rematchVotes: [], disconnectTimers: {}, isClassPaused: false };
+    socket.join(roomId);
+    socket.emit('joined-room', { roomId, role: 'X', board: rooms[roomId].board, turn: 'X', players: rooms[roomId].players });
+    broadcastState();
+  });
+
+  // --- 【新規追加】AI（CPU）対戦部屋作成 ---
+  socket.on('create-ai-room', (name) => {
+    if (!socket.nickname || !socket.userId) return socket.emit('auth-error', 'セッションが切れています。再度ログインしてください。');
+
+    if (isCurrentlyClassTime) {
+      return socket.emit('auth-error', '現在は授業時間中のため、新しく部屋を作成することはできません。');
+    }
+    const roomId = Math.random().toString(36).substring(7);
+    rooms[roomId] = { 
+      name: name || `${socket.nickname}のCPU対戦部屋`, 
+      board: Array(64).fill(null), 
+      turn: 'X', 
+      players: [
+        { id: socket.id, userId: socket.userId, nickname: socket.nickname, icon: socket.icon, role: 'X' },
+        { id: 'ai-socket-id', userId: 'ai-user-id', nickname: 'CPU（AI）', icon: '🤖', role: 'O' }
+      ], 
+      winner: null, 
+      rematchVotes: [], 
+      disconnectTimers: {}, 
+      isClassPaused: false,
+      isAiRoom: true // AI部屋であることを識別するフラグ
+    };
     socket.join(roomId);
     socket.emit('joined-room', { roomId, role: 'X', board: rooms[roomId].board, turn: 'X', players: rooms[roomId].players });
     broadcastState();
@@ -481,6 +632,13 @@ io.on('connection', (socket) => {
         } else {
           room.turn = room.turn === 'X' ? 'O' : 'X';
           io.to(roomId).emit('update', { board: room.board, turn: room.turn });
+
+          // 【AI対応】AI部屋であり、プレイヤー（X）の着手が正常完了し、AIのターン（O）になった場合は0.8秒後に自動思考
+          if (room.isAiRoom && room.turn === 'O' && !room.winner && !isCurrentlyClassTime && !room.isClassPaused) {
+            setTimeout(() => {
+              makeAiMove(roomId).catch(console.error);
+            }, 800);
+          }
         }
       } catch (err) {
         console.error('Move processing error:', err);
@@ -495,6 +653,12 @@ io.on('connection', (socket) => {
     const p = room.players.find(pl => pl.id === socket.id);
     if (p && p.role !== 'Spectator' && !room.rematchVotes.includes(p.role)) {
       room.rematchVotes.push(p.role);
+
+      // 【AI対応】AI対戦部屋であれば、プレイヤーの投票（1つ目）を確認した時点でAIの同意票（O）を自動注入して即時合意させる
+      if (room.isAiRoom && room.rematchVotes.length === 1) {
+        room.rematchVotes.push('O');
+      }
+
       if (room.rematchVotes.length === 2) {
         room.board = Array(64).fill(null); 
         room.turn = 'X'; 
@@ -660,6 +824,9 @@ io.on('connection', (socket) => {
 
           room.players.forEach(p => {
             if (p.role !== 'Spectator') {
+              // 【AI対応】AIプレイヤーはソケットを持たないため、ここでも誤判定を確実にガードする
+              if (room.isAiRoom && p.role === 'O') return;
+
               const socketExists = io.sockets.sockets.get(p.id);
               if (!socketExists) {
                 io.to(roomId).emit('game-paused', { reason: 'disconnect', message: '対戦相手の通信が切断されています。復帰を待っています...(60秒後に不戦勝)' });
@@ -673,6 +840,11 @@ io.on('connection', (socket) => {
               }
             }
           });
+
+          // 【AI対応】緊急解除で再開した際、AIのターン（O）であれば自動思考をキック
+          if (room.isAiRoom && room.turn === 'O' && !room.winner) {
+            setTimeout(() => { makeAiMove(roomId).catch(console.error); }, 800);
+          }
         }
       });
     }

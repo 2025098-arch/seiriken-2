@@ -924,3 +924,248 @@ function animate() {
 }
 animate();
 window.addEventListener('resize', resizeCanvas);
+
+// ==========================================
+// 🔥 【新規追加】完全ローカルAI（CPU）対戦アドオン機能
+// ==========================================
+(function() {
+  // 立体四目並べ（4x4x4=64マス）の全勝利ライン（計76本）のインデックス定義
+  const WIN_LINES = [];
+  function initWinLines() {
+    for (let z = 0; z < 4; z++) {
+      for (let y = 0; y < 4; y++) {
+        WIN_LINES.push([z*16 + y*4 + 0, z*16 + y*4 + 1, z*16 + y*4 + 2, z*16 + y*4 + 3]);
+      }
+      for (let x = 0; x < 4; x++) {
+        WIN_LINES.push([z*16 + 0*4 + x, z*16 + 1*4 + x, z*16 + 2*4 + x, z*16 + 3*4 + x]);
+      }
+      WIN_LINES.push([z*16 + 0*4 + 0, z*16 + 1*4 + 1, z*16 + 2*4 + 2, z*16 + 3*4 + 3]);
+      WIN_LINES.push([z*16 + 0*4 + 3, z*16 + 1*4 + 2, z*16 + 2*4 + 1, z*16 + 3*4 + 0]);
+    }
+    for (let i = 0; i < 16; i++) {
+      WIN_LINES.push([0*16 + i, 1*16 + i, 2*16 + i, 3*16 + i]);
+    }
+    for (let y = 0; y < 4; y++) {
+      WIN_LINES.push([0*16 + y*4 + 0, 1*16 + y*4 + 1, 2*16 + y*4 + 2, 3*16 + y*4 + 3]);
+      WIN_LINES.push([0*16 + y*4 + 3, 1*16 + y*4 + 2, 2*16 + y*4 + 1, 3*16 + y*4 + 0]);
+    }
+    for (let x = 0; x < 4; x++) {
+      WIN_LINES.push([0*16 + 0*4 + x, 1*16 + 1*4 + x, 2*16 + 2*4 + x, 3*16 + 3*4 + x]);
+      WIN_LINES.push([0*16 + 3*4 + x, 1*16 + 2*4 + x, 2*16 + 1*4 + x, 3*16 + 0*4 + x]);
+    }
+    WIN_LINES.push([0*16 + 0*4 + 0, 1*16 + 1*4 + 1, 2*16 + 2*4 + 2, 3*16 + 3*4 + 3]);
+    WIN_LINES.push([0*16 + 0*4 + 3, 1*16 + 1*4 + 2, 2*16 + 2*4 + 1, 3*16 + 3*4 + 0]);
+    WIN_LINES.push([0*16 + 3*4 + 0, 1*16 + 2*4 + 1, 2*16 + 1*4 + 2, 3*16 + 0*4 + 3]);
+    WIN_LINES.push([0*16 + 3*4 + 3, 1*16 + 2*4 + 2, 2*16 + 1*4 + 1, 3*16 + 0*4 + 0]);
+  }
+  initWinLines();
+
+  let aiBoard = Array(64).fill(null);
+  let isAICoroutineActive = false;
+
+  // AI対戦モードを初期設定で起動する関数
+  function startAIMode() {
+    currentRoomId = 'AI_ROOM';
+    myRole = 'X';
+    currentTurn = 'X';
+    currentWinner = null;
+    aiBoard.fill(null);
+    previousBoard.fill(null);
+
+    // アバターシステムと連動させるダミープレイヤーデータ
+    roomPlayers = [
+      { userId: myUser?.userId || 'player', nickname: myUser?.nickname || 'あなた', role: 'X', icon: myUser?.icon },
+      { userId: 'cpu', nickname: 'AIロボット', role: 'O', icon: { color: '#535c68', hair: 'spiky', hairColor: '#2f3640', eye: 'angry', eyeColor: '#e74c3c', mouth: 'sad', beard: 'none' } }
+    ];
+
+    // 既存のUIコンテナ切り替えロジック
+    lobbyContainer.style.display = 'none';
+    gameContainer.style.display = 'block';
+    openSettingsBtn.style.display = 'none';
+    rematchArea.style.display = 'none';
+    rematchBtn.style.display = 'inline-block';
+
+    // 既存の描画エンジンの呼び出し（そのまま3D空間が作られます）
+    resizeCanvas();
+    updateAvatars();
+    renderBoard(aiBoard, false);
+    updateStatus(currentTurn, null);
+  }
+
+  // ルールベース：置くことが可能なインデックス（下詰まりルール）の取得
+  function getAvailableIndices(board) {
+    const indices = [];
+    for (let peg = 0; peg < 16; peg++) {
+      for (let layer = 0; layer < 4; layer++) {
+        const idx = peg + layer * 16;
+        if (board[idx] === null) {
+          indices.push(idx);
+          break; // この棒（ペグ）はこれ以上上には置けない
+        }
+      }
+    }
+    return indices;
+  }
+
+  // 盤面の勝敗チェック
+  function checkWinner(board) {
+    for (const line of WIN_LINES) {
+      const [a, b, c, d] = line;
+      if (board[a] && board[a] === board[b] && board[a] === board[c] && board[a] === board[d]) {
+        return board[a];
+      }
+    }
+    if (board.every(cell => cell !== null)) return 'Draw';
+    return null;
+  }
+
+  // AI（CPU）の思考アルゴリズム：王道のリーチ察知・阻止型AI
+  function getCPUMove(board, cpuRole, playerRole) {
+    const available = getAvailableIndices(board);
+    if (available.length === 0) return null;
+
+    // パターン1: 自分がその一手で勝てるなら、即座にそこに置く（勝利確定）
+    for (const idx of available) {
+      const nextBoard = [...board]; nextBoard[idx] = cpuRole;
+      if (checkWinner(nextBoard) === cpuRole) return idx;
+    }
+
+    // パターン2: 相手が次の一手で勝つラインがあるなら、絶対に阻止する（防御）
+    for (const idx of available) {
+      const nextBoard = [...board]; nextBoard[idx] = playerRole;
+      if (checkWinner(nextBoard) === playerRole) return idx;
+    }
+
+    // パターン3: それ以外は、置ける場所からランダムに選択（妥協なしのゲーム性）
+    return available[Math.floor(Math.random() * available.length)];
+  }
+
+  // プレイヤーがクリックした時のAIモード内処理
+  function handleAIMoveRequest(pegIndex) {
+    if (currentTurn !== 'X' || currentWinner || isAICoroutineActive) return;
+
+    let targetIdx = -1;
+    for (let layer = 0; layer < 4; layer++) {
+      const idx = pegIndex + layer * 16;
+      if (aiBoard[idx] === null) {
+        targetIdx = idx;
+        break;
+      }
+    }
+    if (targetIdx === -1) return; // 選択した棒がすでに満杯なら何もしない
+
+    // プレイヤーの着手（X）を反映し、落下アニメーションをトリガー
+    aiBoard[targetIdx] = 'X';
+    renderBoard(aiBoard, true);
+
+    let winState = checkWinner(aiBoard);
+    if (winState) {
+      currentWinner = winState;
+      updateStatus(currentTurn, winState);
+      return;
+    }
+
+    // ターンをAI（O）へ移行
+    currentTurn = 'O';
+    updateStatus(currentTurn, null);
+    isAICoroutineActive = true;
+
+    // AIの思考に1秒の「ため」を作り、人間らしさを演出
+    setTimeout(() => {
+      if (currentRoomId !== 'AI_ROOM' || currentWinner) {
+        isAICoroutineActive = false;
+        return;
+      }
+
+      const cpuIdx = getCPUMove(aiBoard, 'O', 'X');
+      if (cpuIdx !== null) {
+        aiBoard[cpuIdx] = 'O';
+        renderBoard(aiBoard, true); // AIの玉も滑らかに落下します
+
+        let aiWinState = checkWinner(aiBoard);
+        if (aiWinState) {
+          currentWinner = aiWinState;
+          updateStatus(currentTurn, aiWinState);
+        } else {
+          currentTurn = 'X';
+          updateStatus(currentTurn, null);
+        }
+      }
+      isAICoroutineActive = false;
+    }, 1000);
+  }
+
+  // 既存の「socket.emit」を安全にラップ（AI戦の通信だけをローカルにバイパスする）
+  const originalEmit = socket.emit;
+  socket.emit = function(event, data) {
+    if (currentRoomId === 'AI_ROOM') {
+      if (event === 'move') {
+        handleAIMoveRequest(data.pegIndex);
+        return;
+      }
+      if (event === 'leave-room') {
+        currentRoomId = '';
+        currentWinner = null;
+        currentTurn = 'X';
+        isAICoroutineActive = false;
+        return; // 既存のbackBtnの後半のUIリセットロジックにバトンタッチ
+      }
+      if (event === 'rematch') {
+        startAIMode();
+        alert('AIとの再戦（新ゲーム）を開始します！');
+        return;
+      }
+      if (event === 'chat-message') {
+        // AIモード中にチャットを送ると、AIがロボット風に返事をする楽しい仕様
+        appendChatMessage(roomChatBox, { role: myRole, nickname: myUser?.nickname, message: data.message });
+        setTimeout(() => {
+          const aiReplies = ["ピピピッ！高度な戦術を検出！", "計算中...そこに来ましたか！", "負けませんよ！🤖", "パパパッ！ナイス着手です！"];
+          const randomReply = aiReplies[Math.floor(Math.random() * aiReplies.length)];
+          appendChatMessage(roomChatBox, { role: 'O', nickname: 'AIロボット', message: randomReply });
+        }, 600);
+        return;
+      }
+    }
+    // AI部屋ではない（通常の部屋）ときは、100%元通りのサーバー通信をそのまま行う（デグレス防止）
+    originalEmit.apply(socket, arguments);
+  };
+
+  // AI対戦ボタンの自動生成・配置ロジック
+  let aiCreateBtn = document.getElementById('ai-create-btn');
+  if (!aiCreateBtn && createBtn) {
+    aiCreateBtn = document.createElement('button');
+    aiCreateBtn.id = 'ai-create-btn';
+    aiCreateBtn.textContent = 'AIと対戦する';
+
+    // 既存のロビーボタンのデザインに馴染むようスタイル調整
+    aiCreateBtn.style.marginLeft = '10px';
+    aiCreateBtn.style.backgroundColor = '#2ed573';
+    aiCreateBtn.style.color = '#fff';
+    aiCreateBtn.style.border = 'none';
+    aiCreateBtn.style.padding = '10px 20px';
+    aiCreateBtn.style.borderRadius = '5px';
+    aiCreateBtn.style.cursor = 'pointer';
+    aiCreateBtn.style.fontWeight = 'bold';
+    aiCreateBtn.style.transition = 'background 0.2s';
+
+    aiCreateBtn.addEventListener('mouseover', () => aiCreateBtn.style.backgroundColor = '#26af5f');
+    aiCreateBtn.addEventListener('mouseout', () => aiCreateBtn.style.backgroundColor = '#2ed573');
+
+    // ロビーの「部屋作成」ボタンのすぐ右隣に自動で挿入する
+    if (createBtn.parentNode) {
+      createBtn.parentNode.insertBefore(aiCreateBtn, createBtn.nextSibling);
+    }
+  }
+
+  // ボタンがクリックされたときのイベント
+  if (aiCreateBtn) {
+    aiCreateBtn.addEventListener('click', () => {
+      // 既存の「授業中スケジュール管理」の制限フラグとも完璧に連動
+      if (isClassTimeLocal) {
+        alert('授業時間中はAIとも対戦できません。休み時間まで待ちましょう！');
+        return;
+      }
+      startAIMode();
+    });
+  }
+})();
