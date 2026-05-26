@@ -161,108 +161,183 @@ winLines.push([12, 25, 38, 51]); winLines.push([15, 26, 37, 48]);
 function checkWin(board, role) { return winLines.some(l => l.every(idx => board[idx] === role)); }
 function checkDraw(board) { return board.every(c => c !== null); }
 
-// --- 【新規追加】AI（CPU）の思考・配置ロジック ---
+// --- 【AfterのAfter】最強AIロジック（二重・二段リーチ完全特化型） ---
+
+// 盤面の有利・不利を点数化する関数
+function evaluateBoard(board) {
+  let score = 0;
+  let xReachCount = 0; // プレイヤーのリーチ（王手）数
+  let oReachCount = 0; // AIのリーチ（王手）数
+
+  for (const line of winLines) {
+    let oCount = 0, xCount = 0;
+    for (const idx of line) {
+      if (board[idx] === 'O') oCount++;
+      else if (board[idx] === 'X') xCount++;
+    }
+
+    if (oCount > 0 && xCount > 0) continue; // 両方のコマが混ざっているラインは価値ゼロ
+
+    if (oCount === 4) return 1000000; // AIの勝ち
+    if (xCount === 4) return -1000000; // プレイヤーの勝ち
+
+    // AIの評価
+    if (oCount === 3) { score += 10000; oReachCount++; }
+    if (oCount === 2) score += 100;
+    if (oCount === 1) score += 10;
+
+    // プレイヤーの評価（防御を分厚くするためマイナスを大きく設定）
+    if (xCount === 3) { score -= 15000; xReachCount++; }
+    if (xCount === 2) score -= 150;
+    if (xCount === 1) score -= 10;
+  }
+
+  // ────────────────────────────────────────────────────────
+  // ★【二重リーチ検知システム】
+  // プレイヤーに2つ以上の同時リーチ（防御不能の必勝形）を作られる展開は、
+  // AIにとって「即敗北」と同義。そのため、超弩級のマイナス評価（-50万点）を叩き込む。
+  // ────────────────────────────────────────────────────────
+  if (xReachCount >= 2) {
+    score -= 500000;
+  }
+
+  // 逆に、AIがダブルリーチを仕掛けられるルートなら大チャンス（大加点）
+  if (oReachCount >= 2) {
+    score += 400000;
+  }
+
+  return score;
+}
+
+// 現在の盤面で「置けるマス」のインデックス一覧を取得
+function getValidMoves(board) {
+  const moves = [];
+  for (let peg = 0; peg < 16; peg++) {
+    for (let z = 0; z < 4; z++) {
+      if (!board[z * 16 + peg]) {
+        moves.push(z * 16 + peg);
+        break; // 立体四目なので下からしか置けない
+      }
+    }
+  }
+  return moves;
+}
+
+// 未来を予測する再帰関数（Alpha-Betaプルーニング）
+function minimax(board, depth, alpha, beta, isMaximizing) {
+  const score = evaluateBoard(board);
+  if (Math.abs(score) >= 400000 || depth === 0) return score;
+
+  const validMoves = getValidMoves(board);
+  if (validMoves.length === 0) return 0; // 引き分け
+
+  if (isMaximizing) {
+    let maxEval = -Infinity;
+    for (const move of validMoves) {
+      board[move] = 'O'; // AIが置いたと仮定
+
+      // ────────────────────────────────────────────────────────
+      // ★【二段リーチ（空中トラップ）完全回避ロジック】
+      // AIがここに置いた結果、その「真上（Z+1）」のマスが
+      // プレイヤー（X）の即勝利マスになってしまうか検証する。
+      // もしそうなれば、それは相手への「踏み台提供（自爆）」なので、探索を進めず即座に排除。
+      // ────────────────────────────────────────────────────────
+      let isSuicide = false;
+      if (move < 48) { // 3階（Z=2）以下の場合のみ上が存在する
+        const aboveIdx = move + 16;
+        board[aboveIdx] = 'X';
+        if (checkWin(board, 'X')) {
+          isSuicide = true; // 上に置かれたら相手が勝つ状態＝罠
+        }
+        board[aboveIdx] = null;
+      }
+
+      let ev;
+      if (isSuicide) {
+        ev = -800000; // 罠を察知して、この手を絶対に使わない
+      } else {
+        ev = minimax(board, depth - 1, alpha, beta, false);
+      }
+
+      board[move] = null; // 仮定を戻す
+      maxEval = Math.max(maxEval, ev);
+      alpha = Math.max(alpha, ev);
+      if (beta <= alpha) break; // 枝切り
+    }
+    return maxEval;
+  } else {
+    let minEval = Infinity;
+    for (const move of validMoves) {
+      board[move] = 'X'; // プレイヤーが置いたと仮定
+      const ev = minimax(board, depth - 1, alpha, beta, true);
+      board[move] = null;
+
+      minEval = Math.min(minEval, ev);
+      beta = Math.min(beta, ev);
+      if (beta <= alpha) break;
+    }
+    return minEval;
+  }
+}
+
 async function makeAiMove(roomId) {
   const room = rooms[roomId];
-  // 部屋がない、既に決着している、授業中ロックされている、AIのターンでない場合は即座に弾く
   if (!room || room.winner || isCurrentlyClassTime || room.isClassPaused || room.turn !== 'O') return;
 
-  // 16本のペグ（縦棒）のうち、まだ4つ埋まっていない有効な選択肢をリストアップ
-  const validMoves = [];
-  for (let peg = 0; peg < 16; peg++) {
-    let z = -1;
-    for (let i = 0; i < 4; i++) {
-      if (!room.board[i * 16 + peg]) { z = i; break; }
-    }
-    if (z !== -1) {
-      validMoves.push({ peg, z, boardIdx: z * 16 + peg });
-    }
-  }
-
+  const board = room.board;
+  const validMoves = getValidMoves(board);
   if (validMoves.length === 0) return;
 
-  let selectedMove = null;
-
-  // 【思考段階 1】自分がこの一手で勝てる（王手）マスがあるかシミュレート
+  // AI自身の即勝ち（王手回収）があれば最優先
   for (const move of validMoves) {
-    const tempBoard = [...room.board];
-    tempBoard[move.boardIdx] = 'O';
-    if (checkWin(tempBoard, 'O')) {
-      selectedMove = move;
-      break;
+    board[move] = 'O';
+    if (checkWin(board, 'O')) {
+      board[move] = null;
+      room.board[move] = 'O';
+      await processGameEnd(roomId, 'O');
+      return;
+    }
+    board[move] = null;
+  }
+
+  let bestScore = -Infinity;
+  let bestMove = validMoves[0];
+  const SEARCH_DEPTH = 3; 
+
+  for (const move of validMoves) {
+    board[move] = 'O';
+    const score = minimax(board, SEARCH_DEPTH - 1, -Infinity, Infinity, false);
+    board[move] = null;
+
+    // 中央付近（ペグ5, 6, 9, 10）を好む中央制御バイアス
+    let centerBonus = 0;
+    const peg = move % 16;
+    if ([5, 6, 9, 10].includes(peg)) centerBonus = 5;
+
+    const finalScore = score + centerBonus;
+
+    if (finalScore > bestScore) {
+      bestScore = finalScore;
+      bestMove = move;
     }
   }
 
-  // 【思考段階 2】相手が次の手で勝ってしまう（防塞すべき）マスがあるかシミュレート
-  if (!selectedMove) {
-    for (const move of validMoves) {
-      const tempBoard = [...room.board];
-      tempBoard[move.boardIdx] = 'X';
-      if (checkWin(tempBoard, 'X')) {
-        selectedMove = move;
-        break;
-      }
-    }
-  }
+  room.board[bestMove] = 'O';
 
-  // 【思考段階 3】上記に該当しなければ、有効なマスからランダムに選択
-  if (!selectedMove) {
-    const randomIdx = Math.floor(Math.random() * validMoves.length);
-    selectedMove = validMoves[randomIdx];
-  }
-
-  // コマを配置
-  room.board[selectedMove.boardIdx] = 'O';
-
+  // --- システム根幹（DB保存・通信）処理（完全維持） ---
   try {
     if (checkWin(room.board, 'O')) {
-      room.winner = 'O';
-      const p = room.players.find(pl => pl.role === 'X'); // プレイヤー
-
-      let lStats = null;
-      if (p) {
-        const loserStats = await User.findOne({ userId: p.userId });
-        if (loserStats) {
-          loserStats.losses++; loserStats.totalLosses++;
-          await loserStats.save();
-          lStats = loserStats;
-          io.to(p.id).emit('sync-stats', loserStats);
-        }
-      }
-
-      await broadcastState();
-
-      io.to(roomId).emit('win', {
-        winnerRole: 'O',
-        board: room.board,
-        players: room.players,
-        isDefault: false,
-        updatedStats: { winner: null, loser: lStats }
-      });
-
+      await processGameEnd(roomId, 'O');
     } else if (checkDraw(room.board)) {
       room.winner = 'Draw';
       const p = room.players.find(pl => pl.role === 'X');
       let drawStatsList = [];
-
       if (p) {
         const st = await User.findOne({ userId: p.userId });
-        if (st) {
-          st.totalDraws++;
-          await st.save();
-          drawStatsList.push(st);
-          io.to(p.id).emit('sync-stats', st);
-        }
+        if (st) { st.totalDraws++; await st.save(); drawStatsList.push(st); io.to(p.id).emit('sync-stats', st); }
       }
-
       await broadcastState();
-
-      io.to(roomId).emit('draw', {
-        board: room.board,
-        players: room.players,
-        updatedStats: drawStatsList
-      });
-
+      io.to(roomId).emit('draw', { board: room.board, players: room.players, updatedStats: drawStatsList });
     } else {
       room.turn = 'X';
       io.to(roomId).emit('update', { board: room.board, turn: room.turn });
@@ -270,6 +345,23 @@ async function makeAiMove(roomId) {
   } catch (err) {
     console.error('AI Move processing error:', err);
   }
+}
+
+async function processGameEnd(roomId, winnerRole) {
+  const room = rooms[roomId];
+  room.winner = winnerRole;
+  const p = room.players.find(pl => pl.role === 'X');
+  let lStats = null;
+  if (p) {
+    const loserStats = await User.findOne({ userId: p.userId });
+    if (loserStats) {
+      loserStats.losses++; loserStats.totalLosses++;
+      await loserStats.save(); lStats = loserStats;
+      io.to(p.id).emit('sync-stats', loserStats);
+    }
+  }
+  await broadcastState();
+  io.to(roomId).emit('win', { winnerRole, board: room.board, players: room.players, isDefault: false, updatedStats: { winner: null, loser: lStats } });
 }
 
 // --- パスワードを除外し、上位100名のみを安全にブロードキャスト ---
