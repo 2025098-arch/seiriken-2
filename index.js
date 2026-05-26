@@ -161,9 +161,11 @@ winLines.push([12, 25, 38, 51]); winLines.push([15, 26, 37, 48]);
 function checkWin(board, role) { return winLines.some(l => l.every(idx => board[idx] === role)); }
 function checkDraw(board) { return board.every(c => c !== null); }
 
-// --- 【AfterのAfter】最強AIロジック（二重・二段リーチ完全特化型） ---
+// ────────────────────────────────────────────────────────
+// ★二重リーチ完全防御 ＋ 強制自爆ハメ殺し先行回避型AI
+// ────────────────────────────────────────────────────────
 
-// 盤面の有利・不利を点数化する関数
+// 盤面の有利・不利を点数化する関数（二重リーチ防御は完全維持）
 function evaluateBoard(board) {
   let score = 0;
   let xReachCount = 0; // プレイヤーのリーチ（王手）数
@@ -192,19 +194,9 @@ function evaluateBoard(board) {
     if (xCount === 1) score -= 10;
   }
 
-  // ────────────────────────────────────────────────────────
-  // ★【二重リーチ検知システム】
-  // プレイヤーに2つ以上の同時リーチ（防御不能の必勝形）を作られる展開は、
-  // AIにとって「即敗北」と同義。そのため、超弩級のマイナス評価（-50万点）を叩き込む。
-  // ────────────────────────────────────────────────────────
-  if (xReachCount >= 2) {
-    score -= 500000;
-  }
-
-  // 逆に、AIがダブルリーチを仕掛けられるルートなら大チャンス（大加点）
-  if (oReachCount >= 2) {
-    score += 400000;
-  }
+  // 【二重リーチ検知システム：完全キープ】
+  if (xReachCount >= 2) { score -= 500000; }
+  if (oReachCount >= 2) { score += 400000; }
 
   return score;
 }
@@ -216,60 +208,96 @@ function getValidMoves(board) {
     for (let z = 0; z < 4; z++) {
       if (!board[z * 16 + peg]) {
         moves.push(z * 16 + peg);
-        break; // 立体四目なので下からしか置けない
+        break; // 下からしか置けない
       }
     }
   }
   return moves;
 }
 
-// 未来を予測する再帰関数（Alpha-Betaプルーニング）
+// 指定されたマスにAIが置いた場合、真上が「相手の即勝ち」または「相手の二重リーチ」になる自爆手かを判定する
+function checkSuicideMove(board, move) {
+  if (move >= 48) return false; // 最上階なら上がないので安全
+
+  const aboveIdx = move + 16;
+  if (board[aboveIdx]) return false;
+
+  board[aboveIdx] = 'X'; // 仮に真上にプレイヤーが置いたとする
+
+  let isSuicide = false;
+  // 1. 真上に置かれると相手がその場で即勝利するか？
+  if (checkWin(board, 'X')) {
+    isSuicide = true;
+  } else {
+    // 2. 真上に置かれると相手に「防御不能の二重リーチ」が完成するか？
+    let xReachCount = 0;
+    for (const line of winLines) {
+      let oCount = 0, xCount = 0;
+      for (const idx of line) {
+        if (board[idx] === 'O') oCount++;
+        else if (board[idx] === 'X') xCount++;
+      }
+      if (oCount === 0 && xCount === 3) xReachCount++;
+    }
+    if (xReachCount >= 2) isSuicide = true;
+  }
+
+  board[aboveIdx] = null; // 状態を戻す
+  return isSuicide;
+}
+
+// 未来を予測する再帰関数（強制自爆トラップの事前察知を組み込み）
 function minimax(board, depth, alpha, beta, isMaximizing) {
   const score = evaluateBoard(board);
   if (Math.abs(score) >= 400000 || depth === 0) return score;
 
   const validMoves = getValidMoves(board);
-  if (validMoves.length === 0) return 0; // 引き分け
+  if (validMoves.length === 0) return 0;
 
   if (isMaximizing) {
     let maxEval = -Infinity;
     for (const move of validMoves) {
-      board[move] = 'O'; // AIが置いたと仮定
-
-      // ────────────────────────────────────────────────────────
-      // ★【二段リーチ（空中トラップ）完全回避ロジック】
-      // AIがここに置いた結果、その「真上（Z+1）」のマスが
-      // プレイヤー（X）の即勝利マスになってしまうか検証する。
-      // もしそうなれば、それは相手への「踏み台提供（自爆）」なので、探索を進めず即座に排除。
-      // ────────────────────────────────────────────────────────
-      let isSuicide = false;
-      if (move < 48) { // 3階（Z=2）以下の場合のみ上が存在する
-        const aboveIdx = move + 16;
-        board[aboveIdx] = 'X';
-        if (checkWin(board, 'X')) {
-          isSuicide = true; // 上に置かれたら相手が勝つ状態＝罠
-        }
-        board[aboveIdx] = null;
+      // 即座の自爆手は絶対に選ばないように大減点
+      if (checkSuicideMove(board, move)) {
+        maxEval = Math.max(maxEval, -800000);
+        continue;
       }
 
-      let ev;
-      if (isSuicide) {
-        ev = -800000; // 罠を察知して、この手を絶対に使わない
-      } else {
-        ev = minimax(board, depth - 1, alpha, beta, false);
-      }
+      board[move] = 'O';
+      const ev = minimax(board, depth - 1, alpha, beta, false);
+      board[move] = null;
 
-      board[move] = null; // 仮定を戻す
       maxEval = Math.max(maxEval, ev);
       alpha = Math.max(alpha, ev);
-      if (beta <= alpha) break; // 枝切り
+      if (beta <= alpha) break;
     }
     return maxEval;
   } else {
     let minEval = Infinity;
     for (const move of validMoves) {
-      board[move] = 'X'; // プレイヤーが置いたと仮定
-      const ev = minimax(board, depth - 1, alpha, beta, true);
+      board[move] = 'X';
+
+      // ────────────────────────────────────────────────────────
+      // ★【強制自爆の包囲網・事前検知】
+      // プレイヤーがここに置いた結果、次のターンにAIが「どこに置いても自爆（あるいは敗北）」
+      // に追い込まれるハメ技状態になるかを、一手手前でシミュレートする。
+      // ────────────────────────────────────────────────────────
+      const nextAiMoves = getValidMoves(board);
+      let forcedToSuicide = false;
+
+      if (nextAiMoves.length > 0) {
+        // AIの次の選択肢が「すべて自爆手」または「相手の勝ちに繋がる手」しか残らないか確認
+        forcedToSuicide = nextAiMoves.every(aiMove => checkSuicideMove(board, aiMove));
+      }
+
+      let ev;
+      if (forcedToSuicide) {
+        // プレイヤーがこの罠を仕掛けようとしているルートを「超危険」とみなし、評価値を最悪にする
+        ev = -900000;
+      } else {
+        ev = minimax(board, depth - 1, alpha, beta, true);
+      }
+
       board[move] = null;
 
       minEval = Math.min(minEval, ev);
@@ -282,13 +310,14 @@ function minimax(board, depth, alpha, beta, isMaximizing) {
 
 async function makeAiMove(roomId) {
   const room = rooms[roomId];
+  // 【完全維持】既存の授業時間判定、一時停止、部屋・ターンチェックをそのまま継承
   if (!room || room.winner || isCurrentlyClassTime || room.isClassPaused || room.turn !== 'O') return;
 
   const board = room.board;
   const validMoves = getValidMoves(board);
   if (validMoves.length === 0) return;
 
-  // AI自身の即勝ち（王手回収）があれば最優先
+  // AI自身の即勝ち（王手回収）があれば最優先（妥協なし）
   for (const move of validMoves) {
     board[move] = 'O';
     if (checkWin(board, 'O')) {
@@ -314,7 +343,9 @@ async function makeAiMove(roomId) {
     const peg = move % 16;
     if ([5, 6, 9, 10].includes(peg)) centerBonus = 5;
 
-    const finalScore = score + centerBonus;
+    // もし今置こうとしているマス自体が直近の自爆手なら大幅デバフ
+    const instantSuicidePenalty = checkSuicideMove(board, move) ? -800000 : 0;
+    const finalScore = score + centerBonus + instantSuicidePenalty;
 
     if (finalScore > bestScore) {
       bestScore = finalScore;
@@ -324,7 +355,7 @@ async function makeAiMove(roomId) {
 
   room.board[bestMove] = 'O';
 
-  // --- システム根幹（DB保存・通信）処理（完全維持） ---
+  // --- システム根幹（DB保存・通信）処理（完全維持・一切の省略なし） ---
   try {
     if (checkWin(room.board, 'O')) {
       await processGameEnd(roomId, 'O');
