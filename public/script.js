@@ -596,11 +596,13 @@ function appendChatMessage(box, data) {
 
   msgEl.appendChild(nameEl);
   msgEl.appendChild(textEl);
-  box.appendChild(msgEl);
 
-  // 確実に最下部へスクロールさせる
+  // ▼ ここを変更：appendChild(下)ではなくprepend(上)に追加する
+  box.prepend(msgEl);
+
+  // ▼ ここを変更：最新が一番上に来るため、スクロール位置を確実に一番上に戻す
   requestAnimationFrame(() => {
-    box.scrollTop = box.scrollHeight;
+    box.scrollTop = 0;
   });
 }
 
@@ -1116,8 +1118,17 @@ window.addEventListener('resize', resizeCanvas);
         return;
       }
       if (event === 'chat-message') {
-        // AIモード中にチャットを送ると、AIがロボット風に返事をする楽しい仕様
-        appendChatMessage(roomChatBox, { role: myRole, nickname: myUser?.nickname, message: data.message });
+        // 🔥 【修正箇所】エモートかどうかを判定して表示を分岐
+        if (data.message.startsWith('[EMOTE]')) {
+          const emoteText = data.message.replace('[EMOTE]', '');
+          showEmoteSplash(emoteText, myRole); // 既存のド派手な表示関数を呼ぶ
+          appendChatMessage(roomChatBox, { role: myRole, nickname: myUser?.nickname, message: `📢 ${emoteText}` });
+        } else {
+          // 通常のチャットの場合
+          appendChatMessage(roomChatBox, { role: myRole, nickname: myUser?.nickname, message: data.message });
+        }
+
+        // エモートに対しても、AIがロボット風に返事をする楽しい仕様
         setTimeout(() => {
           const aiReplies = ["ピピピッ！高度な戦術を検出！", "計算中...そこに来ましたか！", "負けませんよ！🤖", "パパパッ！ナイス着手です！"];
           const randomReply = aiReplies[Math.floor(Math.random() * aiReplies.length)];
