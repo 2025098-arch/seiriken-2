@@ -1,229 +1,106 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>立体4目並べ - 完全認証・授業ブロック版</title>
-  <link rel="stylesheet" href="style.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>時間別 整理券システム</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; background-color: #f4f4f9; padding: 20px; }
+        .slot-container { display: flex; flex-wrap: wrap; justify-content: center; gap: 15px; }
+        .box { background: white; border: 1px solid #ddd; padding: 15px; width: 300px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        .time { font-size: 24px; font-weight: bold; margin-bottom: 10px; }
+        .status { font-size: 14px; color: #555; margin-bottom: 15px; }
+        .number { font-size: 32px; font-weight: bold; color: #007bff; margin: 10px 0; }
+        button { padding: 8px 16px; font-size: 14px; cursor: pointer; margin: 3px; border: none; border-radius: 5px; background: #007bff; color: white; }
+        button:hover { background: #0056b3; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        .admin-btn { background: #28a745; }
+        .reset-btn { background: #dc3545; display: block; margin: 30px auto; padding: 10px 20px; }
+        #message { font-size: 18px; font-weight: bold; color: #d9534f; margin-top: 20px; min-height: 25px; }
+    </style>
 </head>
 <body>
+    <h2>時間別 整理券システム</h2>
+    <div id="message"></div>
 
-  <div id="auth-modal">
-    <div class="modal-content">
-      <div class="tabs">
-        <button id="tab-login" class="active">ログイン</button>
-        <button id="tab-register">新規登録</button>
-      </div>
-      
-      <div id="auth-error" class="error-msg"></div>
-
-      <input type="text" id="auth-nickname" placeholder="ニックネーム" maxlength="10">
-      <input type="password" id="auth-password" placeholder="6桁の数字パスワード" pattern="\d{6}" maxlength="6" inputmode="numeric">
-      
-      <div id="auth-icon-editor" class="icon-editor" style="display: none;">
-        <h3>アバター設定 (後から変更可能)</h3>
-        <label>肌の色: <input type="color" id="icon-color" value="#ffccaa"></label>
-        <label>髪の色: <input type="color" id="icon-hair-color" value="#111111"></label>
-        <label>髪型: 
-          <select id="icon-hair">
-            <option value="none">坊主</option>
-            <option value="short">ショート</option>
-            <option value="spiky">スパイキー</option>
-            <option value="twin">ツイン</option>
-          </select>
-        </label>
-        <label>目の色: <input type="color" id="icon-eye-color" value="#111111"></label>
-        <label>顔(目): 
-          <select id="icon-eye">
-            <option value="normal">まる目 (● ●)</option>
-            <option value="angry">つり目 (▼ ▼)</option>
-            <option value="happy">にっこり (⌒ ⌒)</option>
-          </select>
-        </label>
-        <label>口の色: <input type="color" id="icon-mouth-color" value="#331111"></label>
-        <label>口: 
-          <select id="icon-mouth">
-            <option value="smile">スマイル (▲)</option>
-            <option value="normal">まがお (━)</option>
-            <option value="sad">かなしい (▼)</option>
-          </select>
-        </label>
-        <label>ひげ: 
-          <select id="icon-beard">
-            <option value="none">なし</option>
-            <option value="mustache">口ひげ</option>
-            <option value="beard">あごひげ</option>
-            <option value="full">全体ひげ</option>
-          </select>
-        </label>
-      </div>
-      
-      <button id="auth-btn">ログイン</button>
-    </div>
-  </div>
-
-  <div id="settings-modal" style="display: none;">
-    <div class="modal-content">
-      <h2>プロフィール変更</h2>
-      <div id="settings-error" class="error-msg"></div>
-      <input type="text" id="set-nickname" placeholder="新しいニックネーム" maxlength="10">
-      <input type="password" id="set-old-password" placeholder="現在のパスワード(必須)" pattern="\d{6}" maxlength="6" inputmode="numeric">
-      <input type="password" id="set-new-password" placeholder="新しいパスワード(空で維持)" pattern="\d{6}" maxlength="6" inputmode="numeric">
-      
-      <div class="icon-editor">
-        <label>肌の色: <input type="color" id="set-color"></label>
-        <label>髪の色: <input type="color" id="set-hair-color"></label>
-        <label>髪型: 
-          <select id="set-hair">
-            <option value="none">坊主</option>
-            <option value="short">ショート</option>
-            <option value="spiky">スパイキー</option>
-            <option value="twin">ツイン</option>
-          </select>
-        </label>
-        <label>目の色: <input type="color" id="set-eye-color"></label>
-        <label>顔(目): 
-          <select id="set-eye">
-            <option value="normal">まる目</option>
-            <option value="angry">つり目</option>
-            <option value="happy">にっこり</option>
-          </select>
-        </label>
-        <label>口の色: <input type="color" id="set-mouth-color"></label>
-        <label>口: 
-          <select id="set-mouth">
-            <option value="smile">スマイル</option>
-            <option value="normal">まがお</option>
-            <option value="sad">かなしい</option>
-          </select>
-        </label>
-        <label>ひげ: 
-          <select id="set-beard">
-            <option value="none">なし</option>
-            <option value="mustache">口ひげ</option>
-            <option value="beard">あごひげ</option>
-            <option value="full">全体ひげ</option>
-          </select>
-        </label>
-      </div>
-      <div style="display:flex; gap:10px;">
-        <button id="settings-save-btn" style="flex:1;">保存</button>
-        <button id="settings-close-btn" style="flex:1; background:#747d8c;">閉じる</button>
-      </div>
-    </div>
-  </div>
-
-  <div id="app-container" style="display: none;">
-    <div class="header-bar">
-      <h1>立体4目並べ</h1>
-      <button id="open-settings-btn">⚙️ 設定</button>
-    </div>
-    
-    <div id="user-info"></div>
-    
-    <div id="class-time-warning" style="display: none; color: white; background: #ff4757; padding: 15px; font-weight: bold; margin-bottom: 10px; border-radius: 6px; text-align: center;">
-      <div>⚠️ 現在は授業時間中のため、試合の開始や進行がロックされています。</div>
-      <button id="emergency-bypass-btn" style="margin-top: 10px; padding: 8px 15px; font-size: 0.85em; background: white; color: #ff4757; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; box-shadow: 0 2px 5px rgba(0,0,0,0.2);">授業中ではないのにロックされている場合</button>
+    <div class="slot-container" id="slots">
+        <!-- 枠がここに動的に生成されます -->
     </div>
 
-    <div id="lobby-container">
-      <div class="lobby-main">
-        <div class="lobby-left">
-          <div id="create-area">
-            <input type="text" id="room-name-input" placeholder="部屋の名前（空欄でもOK）" maxlength="15">
-            <button id="create-btn">部屋を作る</button>
-          </div>
-          <h2>オープンな部屋一覧</h2>
-          <div id="room-list"></div>
-          
-          <h2>グローバルロビーチャット</h2>
-          <div class="chat-container">
-            <div id="lobby-chat-box" class="chat-box"></div>
-            <div class="chat-input-area">
-              <input type="text" id="lobby-chat-input" placeholder="メッセージを入力..." maxlength="50">
-              <button id="lobby-chat-send-btn">送信</button>
-            </div>
-          </div>
-        </div>
-        
-        <div class="lobby-right">
-          <h2>🏆 全体リーダーボード</h2>
-          <table id="leaderboard-table">
-            <thead>
-              <tr>
-                <th>順</th>
-                <th>名前</th>
-                <th>総勝</th>
-                <th>総敗</th>
-                <th>分</th>
-                <th>勝</th>
-                <th>敗</th>
-                <th>不勝</th>
-                <th>不敗</th>
-              </tr>
-            </thead>
-            <tbody id="leaderboard-body"></tbody>
-          </table>
-        </div>
-      </div>
-    </div>
+    <button class="reset-btn" onclick="resetAll()">全データをリセット (管理者用)</button>
 
-    <div id="game-container" style="display: none;">
-      <div id="status-bar">
-        <button id="back-btn">退室する</button>
-        <div id="status">対戦相手を待っています...</div>
-      </div>
-      
-      <div id="rematch-area" style="display: none;">
-        <button id="rematch-btn">もう一試合する？</button>
-        <div id="rematch-status"></div>
-      </div>
+    <script>
+        async function fetchStatus() {
+            const res = await fetch('/api/slots');
+            const slots = await res.json();
+            const container = document.getElementById('slots');
+            container.innerHTML = '';
 
-      <div class="game-layout">
-        <div id="game-board">
-          <div id="control-pad">
-            <div class="pad-label">奥 (相手)</div>
-            <div id="pad-grid"></div>
-            <div class="pad-label">手前 (自分)</div>
-          </div>
-          
-          <div id="overlay-screen" style="display: none;">
-            <div class="overlay-content">
-              <div class="spinner"></div>
-              <p id="overlay-text">待機中...</p>
-            </div>
-          </div>
-        </div>
+            slots.forEach(slot => {
+                const isFull = slot.issued >= slot.maxTickets;
 
-        <div class="game-chat-area">
-          <h3>ルームチャット</h3>
-          <div class="chat-container">
-            <div id="emote-container" style="display: flex; gap: 5px; padding: 5px; border-bottom: 1px solid #ddd; background: #fdfdfe;">
-              <button class="emote-btn" data-emote="王手！">王手！</button>
-              <button class="emote-btn" data-emote="チェックメイト！">チェックメイト！</button>
-              <button class="emote-btn" data-emote="大丈夫？">大丈夫？</button>
-            </div>
-            <div id="room-chat-box" class="chat-box"></div>
-            <div class="chat-input-area">
-              <input type="text" id="room-chat-input" placeholder="部屋に送信..." maxlength="50">
-              <button id="room-chat-send-btn">送信</button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
+                const box = document.createElement('div');
+                box.className = 'box';
+                box.innerHTML = `
+                    <div class="time">${slot.time}</div>
+                    <div class="status">発券数: ${slot.issued} / ${slot.maxTickets} (上限)</div>
+                    <div>現在のお呼び出し</div>
+                    <div class="number">${slot.called} 番</div>
+                    <hr>
+                    <button onclick="issueTicket('${slot.time}')" ${isFull ? 'disabled' : ''}>
+                        ${isFull ? '満員' : '発券する'}
+                    </button>
+                    <br><br>
+                    <div style="background: #e9ecef; padding: 10px; border-radius: 5px;">
+                        <span style="font-size: 12px;">管理者用</span><br>
+                        <button class="admin-btn" onclick="callNext('${slot.time}')">次を呼ぶ</button>
+                    </div>
+                `;
+                container.appendChild(box);
+            });
+        }
 
-  <script async src="https://unpkg.com/es-module-shims@1.6.3/dist/es-module-shims.js"></script>
-  <script type="importmap">
-  {
-    "imports": {
-      "three": "https://unpkg.com/three@0.150.0/build/three.module.js",
-      "three/addons/": "https://unpkg.com/three@0.150.0/examples/jsm/"
-    }
-  }
-  </script>
-  <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
-  <script type="module" src="script.js"></script>
+        async function issueTicket(time) {
+            const res = await fetch('/api/issue', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ time })
+            });
+            const data = await res.json();
+
+            if (data.error) {
+                showMessage(data.error);
+            } else {
+                showMessage(`${data.time}の整理券を発行しました。あなたの番号: ${data.ticketNumber}番`);
+            }
+            fetchStatus();
+        }
+
+        async function callNext(time) {
+            await fetch('/api/call', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ time })
+            });
+            fetchStatus();
+        }
+
+        async function resetAll() {
+            if(confirm('すべての時間帯の整理券をリセットしますか？')) {
+                await fetch('/api/reset', { method: 'POST' });
+                showMessage('リセット完了しました');
+                fetchStatus();
+            }
+        }
+
+        function showMessage(msg) {
+            const msgEl = document.getElementById('message');
+            msgEl.innerText = msg;
+            setTimeout(() => msgEl.innerText = '', 5000);
+        }
+
+        fetchStatus();
+        setInterval(fetchStatus, 3000); // 3秒自動更新
+    </script>
 </body>
 </html>
