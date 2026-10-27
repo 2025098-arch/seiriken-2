@@ -3,84 +3,227 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LAB DASHBOARD</title>
+    <title>整理券システム / LAB DASHBOARD</title>
     <style>
-        /* ラボ・サイバー風デザイン */
-        body { 
-            font-family: 'Courier New', Courier, monospace; 
-            background-color: #0b0f19; /* 暗い背景 */
-            background-image: 
-                linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
-            background-size: 20px 20px; /* グリッド線 */
-            margin: 0; padding: 20px; color: #00ffcc; 
+        /* デザイン切り替え用の変数定義 */
+        :root {
+            /* 普通（ノーマル）テーマ */
+            --bg-color: #f4f6f9;
+            --bg-img: none;
+            --bg-size: auto;
+            --text-main: #333;
+            --font-family: 'Helvetica Neue', Arial, sans-serif;
+            --title-color: #444;
+            --sub-color: #666;
+
+            --card-bg: #fff;
+            --card-border: 1px solid #ddd;
+            --card-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            --card-border-left: #007bff;
+
+            --tab-border: #007bff;
+            --tab-text: #007bff;
+            --tab-active-bg: #007bff;
+            --tab-active-text: #fff;
+
+            --btn-minus-bg: #e9ecef;
+            --btn-minus-text: #495057;
+            --btn-minus-active: #ced4da;
+
+            --btn-issue-bg: #007bff;
+            --btn-issue-text: #fff;
+            --btn-issue-active: #0056b3;
+
+            --called-color: #d81b60;
+            --btn-called-bg: #d81b60;
+            --btn-called-active: #ad144b;
+
+            --alert-color: #d81b60;
+            --reset-bg: #6c757d;
         }
-        h1 { text-align: center; color: #00ffcc; font-size: 24px; margin-bottom: 5px; letter-spacing: 2px; text-shadow: 0 0 10px rgba(0, 255, 204, 0.5); }
-        .header-info { text-align: center; color: #6b8299; font-size: 12px; margin-bottom: 25px; }
+
+        body.theme-special {
+            /* スペシャル（研究室風）テーマ */
+            --bg-color: #0b0f19;
+            --bg-img: linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+            --bg-size: 20px 20px;
+            --text-main: #00ffcc;
+            --font-family: 'Courier New', Courier, monospace;
+            --title-color: #00ffcc;
+            --sub-color: #6b8299;
+
+            --card-bg: rgba(11, 15, 25, 0.8);
+            --card-border: 1px solid #1f3a52;
+            --card-shadow: 0 4px 6px rgba(0,0,0,0.5);
+            --card-border-left: #00ffcc;
+
+            --tab-border: #00ffcc;
+            --tab-text: #00ffcc;
+            --tab-active-bg: rgba(0, 255, 204, 0.2);
+            --tab-active-text: #00ffcc;
+
+            --btn-minus-bg: #131d2b;
+            --btn-minus-text: #fff;
+            --btn-minus-active: #00ffcc;
+
+            --btn-issue-bg: #131d2b;
+            --btn-issue-text: #fff;
+            --btn-issue-active: #00ffcc;
+
+            --called-color: #ffaa00;
+            --btn-called-bg: #131d2b;
+            --btn-called-active: #ffaa00;
+
+            --alert-color: #ff3366;
+            --reset-bg: #ff3366;
+        }
+
+        /* 共通スタイル */
+        body {
+            font-family: var(--font-family);
+            background-color: var(--bg-color);
+            background-image: var(--bg-img);
+            background-size: var(--bg-size);
+            color: var(--text-main);
+            margin: 0; padding: 20px;
+            transition: all 0.3s ease;
+        }
+
+        #app-container { display: none; } /* 最初はメイン画面を隠す */
+
+        h1 { text-align: center; color: var(--title-color); font-size: 24px; margin-bottom: 5px; }
+        .header-info { text-align: center; color: var(--sub-color); font-size: 13px; margin-bottom: 25px; }
 
         .tabs { display: flex; justify-content: center; gap: 15px; margin-bottom: 25px; }
         .tab-btn { 
             padding: 10px 30px; font-size: 16px; font-weight: bold; font-family: inherit;
-            border: 1px solid #00ffcc; background: transparent; color: #00ffcc; 
-            cursor: pointer; transition: 0.2s; box-shadow: inset 0 0 10px rgba(0, 255, 204, 0.1);
+            border: 2px solid var(--tab-border); background: transparent; color: var(--tab-text); 
+            border-radius: 6px; cursor: pointer; transition: 0.2s;
         }
-        .tab-btn.active { background: rgba(0, 255, 204, 0.2); box-shadow: 0 0 15px rgba(0, 255, 204, 0.4); }
+        .tab-btn.active { background: var(--tab-active-bg); color: var(--tab-active-text); }
 
         .dashboard { display: grid; gap: 15px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); max-width: 1200px; margin: 0 auto; }
 
         .card { 
-            background: rgba(11, 15, 25, 0.8); border: 1px solid #1f3a52; padding: 15px; 
-            box-shadow: 0 4px 6px rgba(0,0,0,0.3); border-left: 4px solid #00ffcc; 
-            backdrop-filter: blur(4px);
+            background: var(--card-bg); border: var(--card-border); padding: 15px; border-radius: 8px;
+            box-shadow: var(--card-shadow); border-left: 5px solid var(--card-border-left); 
         }
-        .time-title { font-size: 18px; font-weight: bold; margin-bottom: 15px; color: #fff; border-bottom: 1px dashed #1f3a52; padding-bottom: 5px; }
+        .time-title { font-size: 18px; font-weight: bold; margin-bottom: 15px; border-bottom: 1px dashed var(--card-border); padding-bottom: 8px; }
 
-        .counter-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding: 8px 0; }
-        .counter-label { font-size: 14px; font-weight: bold; color: #8fa6bd; letter-spacing: 1px; width: 65px; }
+        .counter-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+        .counter-label { font-size: 14px; font-weight: bold; width: 65px; }
         .counter-controls { display: flex; align-items: center; gap: 12px; }
 
         .btn-calc { 
-            width: 40px; height: 40px; font-size: 20px; font-weight: bold; font-family: inherit;
-            border: 1px solid #1f3a52; background: #131d2b; color: #fff; 
-            cursor: pointer; display: flex; align-items: center; justify-content: center; transition: 0.1s;
+            width: 44px; height: 44px; font-size: 22px; font-weight: bold; font-family: inherit;
+            border: var(--card-border); border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: 0.1s;
         }
-        .btn-calc:active { background: #00ffcc; color: #000; }
-        .btn-calc:disabled { opacity: 0.3; cursor: not-allowed; border-color: #333; color: #666; background: #000; }
+        .btn-calc:disabled { opacity: 0.3; cursor: not-allowed; }
 
-        /* 数値の表示部分 */
-        .count-display { font-size: 26px; font-weight: bold; width: 80px; text-align: center; color: #fff; }
-        .count-display span { font-size: 12px; color: #6b8299; margin-left: 2px; }
-        .max-alert { color: #ff3366 !important; text-shadow: 0 0 10px rgba(255, 51, 102, 0.5); }
+        .btn-minus { background: var(--btn-minus-bg); color: var(--btn-minus-text); }
+        .btn-minus:active:not(:disabled) { background: var(--btn-minus-active); color: #000; }
 
-        /* 呼出用カラー（オレンジ系） */
-        .called-label { color: #ffaa00; }
-        .called-text { color: #ffaa00; }
+        .btn-issue { background: var(--btn-issue-bg); color: var(--btn-issue-text); }
+        .btn-issue:active:not(:disabled) { background: var(--btn-issue-active); color: #000; }
+
+        .btn-called { background: var(--btn-called-bg); color: var(--btn-issue-text); }
+        .btn-called:active:not(:disabled) { background: var(--btn-called-active); color: #000; }
+
+        .count-display { font-size: 26px; font-weight: bold; width: 80px; text-align: center; }
+        .count-display span { font-size: 12px; color: var(--sub-color); margin-left: 2px; }
+        .max-alert { color: var(--alert-color); }
 
         .reset-btn { 
-            background: #ff3366; display: block; margin: 50px auto; padding: 10px 20px; 
-            font-size: 12px; font-family: inherit; color: white; border: none; cursor: pointer;
-            box-shadow: 0 0 10px rgba(255, 51, 102, 0.3); opacity: 0.7;
+            background: var(--reset-bg); display: block; margin: 50px auto; padding: 10px 20px; 
+            font-size: 13px; font-family: inherit; color: white; border: none; cursor: pointer; border-radius: 6px;
         }
-        .reset-btn:hover { opacity: 1; }
+
+        /* ----- テーマ選択画面（入り口） ----- */
+        #intro-screen {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100vh;
+            background: #f4f6f9; display: flex; flex-direction: column; 
+            align-items: center; justify-content: center; z-index: 1000;
+        }
+        .intro-box { text-align: center; background: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+        .intro-box h2 { color: #333; margin-bottom: 20px; }
+        .theme-btn { 
+            display: block; width: 100%; padding: 15px; margin-bottom: 15px; 
+            font-size: 18px; font-weight: bold; border-radius: 8px; cursor: pointer; border: none;
+        }
+        .theme-btn.normal { background: #007bff; color: white; }
+        .theme-btn.special { background: #0b0f19; color: #00ffcc; border: 2px solid #00ffcc; font-family: monospace; }
+
+        /* ----- 画面端のテーマ切り替えボタン ----- */
+        #theme-toggle {
+            position: fixed; bottom: 20px; right: 20px;
+            background: var(--card-bg); color: var(--text-main);
+            border: 2px solid var(--card-border-left); border-radius: 30px;
+            padding: 10px 20px; font-size: 14px; font-weight: bold; cursor: pointer;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2); z-index: 100;
+            font-family: inherit; transition: 0.3s;
+        }
     </style>
 </head>
 <body>
-    <h1>[ SYSTEM ] TICKET DASHBOARD</h1>
-    <div class="header-info">> SYNC: ONLINE (3000ms interval)</div>
-
-    <div class="tabs">
-        <button class="tab-btn active" id="tab-Day 1" onclick="switchDay('Day 1')">DAY_01</button>
-        <button class="tab-btn" id="tab-Day 2" onclick="switchDay('Day 2')">DAY_02</button>
+    <!-- 入り口：テーマ選択画面 -->
+    <div id="intro-screen">
+        <div class="intro-box">
+            <h2>ダッシュボードのデザインを選択</h2>
+            <button class="theme-btn normal" onclick="enterSite('normal')">普通</button>
+            <button class="theme-btn special" onclick="enterSite('special')">とても普通</button>
+        </div>
     </div>
 
-    <div class="dashboard" id="slots"></div>
+    <!-- メイン画面 -->
+    <div id="app-container">
+        <!-- 右下のデザイン切り替えボタン -->
+        <button id="theme-toggle" onclick="toggleTheme()">🎨 デザイン変更</button>
 
-    <button class="reset-btn" onclick="hardReset()">[!] SYSTEM FORMAT (ALL DATA DELETE)</button>
+        <h1 id="main-title">整理券システム</h1>
+        <div class="header-info" id="main-info">※複数端末で開いても自動同期されます</div>
+
+        <div class="tabs">
+            <button class="tab-btn active" id="tab-Day 1" onclick="switchDay('Day 1')">DAY 1</button>
+            <button class="tab-btn" id="tab-Day 2" onclick="switchDay('Day 2')">DAY 2</button>
+        </div>
+
+        <div class="dashboard" id="slots"></div>
+
+        <button class="reset-btn" onclick="hardReset()">⚠️ データを全消去して再構築</button>
+    </div>
 
     <script>
         let currentDay = 'Day 1';
-        let localData = []; // 画面をサクサク動かすための手元データ
+        let localData = [];
+        let lastActionTime = 0; // ★巻き戻り防止のためのタイマー
 
+        // --- テーマ切り替え関連 ---
+        function enterSite(theme) {
+            document.getElementById('intro-screen').style.display = 'none';
+            document.getElementById('app-container').style.display = 'block';
+            applyTheme(theme);
+            fetchStatus(); // 入室時にデータ取得開始
+            setInterval(fetchStatus, 3000);
+        }
+
+        function toggleTheme() {
+            const isSpecial = document.body.classList.contains('theme-special');
+            applyTheme(isSpecial ? 'normal' : 'special');
+        }
+
+        function applyTheme(theme) {
+            if (theme === 'special') {
+                document.body.classList.add('theme-special');
+                document.getElementById('main-title').innerText = '[ SYSTEM ] TICKET DASHBOARD';
+                document.getElementById('main-info').innerText = '> SYNC: ONLINE (3000ms interval)';
+            } else {
+                document.body.classList.remove('theme-special');
+                document.getElementById('main-title').innerText = '整理券システム';
+                document.getElementById('main-info').innerText = '※複数端末で開いても自動同期されます';
+            }
+        }
+
+        // --- データ管理関連 ---
         function switchDay(day) {
             currentDay = day;
             document.getElementById('tab-Day 1').classList.toggle('active', day === 'Day 1');
@@ -88,8 +231,10 @@
             renderUI();
         }
 
-        // サーバーからデータを取得
         async function fetchStatus() {
+            // ★巻き戻り防止策：最後のボタン操作から2.5秒以内はデータ受信をスキップする
+            if (Date.now() - lastActionTime < 2500) return;
+
             try {
                 const res = await fetch('/api/slots');
                 localData = await res.json();
@@ -99,7 +244,6 @@
             }
         }
 
-        // 画面を描画する関数
         function renderUI() {
             const slots = localData.filter(s => s.day === currentDay);
             const container = document.getElementById('slots');
@@ -113,23 +257,23 @@
                 const card = document.createElement('div');
                 card.className = 'card';
                 card.innerHTML = `
-                    <div class="time-title">> TIME_SLOT [ ${slot.time} ]</div>
+                    <div class="time-title">${slot.time}</div>
 
                     <div class="counter-row">
-                        <div class="counter-label">ISSUED<br>(発券)</div>
+                        <div class="counter-label">発券</div>
                         <div class="counter-controls">
-                            <button class="btn-calc" onclick="updateCount('${slot.day}', '${slot.time}', 'issued', -1)" ${issued <= 0 ? 'disabled' : ''}>-</button>
+                            <button class="btn-calc btn-minus" onclick="updateCount('${slot.day}', '${slot.time}', 'issued', -1)" ${issued <= 0 ? 'disabled' : ''}>-</button>
                             <div class="count-display ${issued >= max ? 'max-alert' : ''}">${issued}<span>/${max}</span></div>
-                            <button class="btn-calc" onclick="updateCount('${slot.day}', '${slot.time}', 'issued', 1)" ${issued >= max ? 'disabled' : ''}>+</button>
+                            <button class="btn-calc btn-issue" onclick="updateCount('${slot.day}', '${slot.time}', 'issued', 1)" ${issued >= max ? 'disabled' : ''}>+</button>
                         </div>
                     </div>
 
                     <div class="counter-row">
-                        <div class="counter-label called-label">CALLED<br>(呼出)</div>
+                        <div class="counter-label" style="color: var(--called-color);">呼出</div>
                         <div class="counter-controls">
-                            <button class="btn-calc" onclick="updateCount('${slot.day}', '${slot.time}', 'called', -1)" ${called <= 0 ? 'disabled' : ''}>-</button>
-                            <div class="count-display called-text">${called}</div>
-                            <button class="btn-calc" onclick="updateCount('${slot.day}', '${slot.time}', 'called', 1)" ${called >= issued ? 'disabled' : ''}>+</button>
+                            <button class="btn-calc btn-minus" onclick="updateCount('${slot.day}', '${slot.time}', 'called', -1)" ${called <= 0 ? 'disabled' : ''}>-</button>
+                            <div class="count-display" style="color: var(--called-color);">${called}</div>
+                            <button class="btn-calc btn-called" onclick="updateCount('${slot.day}', '${slot.time}', 'called', 1)" ${called >= issued ? 'disabled' : ''}>+</button>
                         </div>
                     </div>
                 `;
@@ -137,21 +281,21 @@
             });
         }
 
-        // ボタンを押した時の処理
         function updateCount(day, time, type, change) {
-            // 1. まず画面(手元)のデータだけを一瞬で書き換える（サクサク動かすため）
+            // ★ボタンを押した時間を記録して、直後の画面更新（巻き戻り）をストップ
+            lastActionTime = Date.now();
+
             const slot = localData.find(s => s.day === day && s.time === time);
             if (slot) {
                 if (type === 'issued') {
                     slot.issued = Math.max(0, Math.min(slot.maxTickets, slot.issued + change));
-                    if (slot.called > slot.issued) slot.called = slot.issued; // 発券数より呼出数が多くならないように調整
+                    if (slot.called > slot.issued) slot.called = slot.issued; 
                 } else if (type === 'called') {
-                    slot.called = Math.max(0, Math.min(slot.issued, slot.called + change)); // 発券数を超えられない
+                    slot.called = Math.max(0, Math.min(slot.issued, slot.called + change)); 
                 }
-                renderUI(); // 画面を即座に更新
+                renderUI(); 
             }
 
-            // 2. 裏側でひっそりサーバーに送信する（待たせない）
             fetch('/api/update-count', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -160,16 +304,13 @@
         }
 
         async function hardReset() {
-            if(confirm('WARNING: すべてのデータを消去し、初期化しますか？')) {
+            if(confirm('本当にすべてのデータを消去し、初期化しますか？')) {
                 await fetch('/api/hard-reset', { method: 'POST' });
-                alert('SYSTEM: FORMAT COMPLETED.');
+                alert('初期化が完了しました。');
+                lastActionTime = 0; // ロック解除
                 fetchStatus();
             }
         }
-
-        // 最初の一回読み込み ＋ 3秒ごとのバックグラウンド同期
-        fetchStatus();
-        setInterval(fetchStatus, 3000);
     </script>
 </body>
 </html>
