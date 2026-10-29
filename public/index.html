@@ -5,119 +5,51 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>整理券システム / LAB DASHBOARD</title>
     <style>
-        /* デザイン切り替え用の変数定義 */
         :root {
-            /* 普通（ノーマル）テーマ */
-            --bg-color: #f4f6f9;
-            --bg-img: none;
-            --bg-size: auto;
-            --text-main: #333;
-            --font-family: 'Helvetica Neue', Arial, sans-serif;
-            --title-color: #444;
-            --sub-color: #666;
-
-            --card-bg: #fff;
-            --card-border: 1px solid #ddd;
-            --card-shadow: 0 2px 5px rgba(0,0,0,0.05);
-            --card-border-left: #007bff;
-
-            --tab-border: #007bff;
-            --tab-text: #007bff;
-            --tab-active-bg: #007bff;
-            --tab-active-text: #fff;
-
-            --btn-minus-bg: #e9ecef;
-            --btn-minus-text: #495057;
-            --btn-minus-active: #ced4da;
-
-            --btn-issue-bg: #007bff;
-            --btn-issue-text: #fff;
-            --btn-issue-active: #0056b3;
-
-            --called-color: #d81b60;
-            --btn-called-bg: #d81b60;
-            --btn-called-active: #ad144b;
-
-            --alert-color: #d81b60;
-            --reset-bg: #6c757d;
+            --bg-color: #f4f6f9; --bg-img: none; --bg-size: auto;
+            --text-main: #333; --font-family: 'Helvetica Neue', Arial, sans-serif;
+            --title-color: #444; --sub-color: #666;
+            --card-bg: #fff; --card-border: 1px solid #ddd; --card-shadow: 0 2px 5px rgba(0,0,0,0.05); --card-border-left: #007bff;
+            --tab-border: #007bff; --tab-text: #007bff; --tab-active-bg: #007bff; --tab-active-text: #fff;
+            --btn-minus-bg: #e9ecef; --btn-minus-text: #495057; --btn-minus-active: #ced4da;
+            --btn-issue-bg: #007bff; --btn-issue-text: #fff; --btn-issue-active: #0056b3;
+            --called-color: #d81b60; --btn-called-bg: #d81b60; --btn-called-active: #ad144b;
+            --called-noticket-color: #ff8c00; --btn-called-noticket-bg: #ff8c00; --btn-called-noticket-active: #cc7000;
+            --total-color: #28a745; --alert-color: #d81b60; --reset-bg: #6c757d;
         }
 
         body.theme-special {
-            /* スペシャル（研究室風）テーマ */
             --bg-color: #0b0f19;
             --bg-img: linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
             --bg-size: 20px 20px;
-            --text-main: #00ffcc;
-            --font-family: 'Courier New', Courier, monospace;
-            --title-color: #00ffcc;
-            --sub-color: #6b8299;
-
-            --card-bg: rgba(11, 15, 25, 0.8);
-            --card-border: 1px solid #1f3a52;
-            --card-shadow: 0 4px 6px rgba(0,0,0,0.5);
-            --card-border-left: #00ffcc;
-
-            --tab-border: #00ffcc;
-            --tab-text: #00ffcc;
-            --tab-active-bg: rgba(0, 255, 204, 0.2);
-            --tab-active-text: #00ffcc;
-
-            --btn-minus-bg: #131d2b;
-            --btn-minus-text: #fff;
-            --btn-minus-active: #00ffcc;
-
-            --btn-issue-bg: #131d2b;
-            --btn-issue-text: #fff;
-            --btn-issue-active: #00ffcc;
-
-            --called-color: #ffaa00;
-            --btn-called-bg: #131d2b;
-            --btn-called-active: #ffaa00;
-
-            --alert-color: #ff3366;
-            --reset-bg: #ff3366;
+            --text-main: #00ffcc; --font-family: 'Courier New', Courier, monospace;
+            --title-color: #00ffcc; --sub-color: #6b8299;
+            --card-bg: rgba(11, 15, 25, 0.8); --card-border: 1px solid #1f3a52; --card-shadow: 0 4px 6px rgba(0,0,0,0.5); --card-border-left: #00ffcc;
+            --tab-border: #00ffcc; --tab-text: #00ffcc; --tab-active-bg: rgba(0, 255, 204, 0.2); --tab-active-text: #00ffcc;
+            --btn-minus-bg: #131d2b; --btn-minus-text: #fff; --btn-minus-active: #00ffcc;
+            --btn-issue-bg: #131d2b; --btn-issue-text: #fff; --btn-issue-active: #00ffcc;
+            --called-color: #ffaa00; --btn-called-bg: #131d2b; --btn-called-active: #ffaa00;
+            --called-noticket-color: #ff8c00; --btn-called-noticket-bg: #131d2b; --btn-called-noticket-active: #ff8c00;
+            --total-color: #00ffcc; --alert-color: #ff3366; --reset-bg: #ff3366;
         }
 
-        /* 共通スタイル */
-        body {
-            font-family: var(--font-family);
-            background-color: var(--bg-color);
-            background-image: var(--bg-img);
-            background-size: var(--bg-size);
-            color: var(--text-main);
-            margin: 0; padding: 20px;
-            transition: all 0.3s ease;
-        }
-
-        #app-container { display: none; } /* 最初はメイン画面を隠す */
-
+        body { font-family: var(--font-family); background-color: var(--bg-color); background-image: var(--bg-img); background-size: var(--bg-size); color: var(--text-main); margin: 0; padding: 20px; transition: all 0.3s ease; }
+        #app-container { display: none; }
         h1 { text-align: center; color: var(--title-color); font-size: 24px; margin-bottom: 5px; }
         .header-info { text-align: center; color: var(--sub-color); font-size: 13px; margin-bottom: 25px; }
-
         .tabs { display: flex; justify-content: center; gap: 15px; margin-bottom: 25px; }
-        .tab-btn { 
-            padding: 10px 30px; font-size: 16px; font-weight: bold; font-family: inherit;
-            border: 2px solid var(--tab-border); background: transparent; color: var(--tab-text); 
-            border-radius: 6px; cursor: pointer; transition: 0.2s;
-        }
+        .tab-btn { padding: 10px 30px; font-size: 16px; font-weight: bold; font-family: inherit; border: 2px solid var(--tab-border); background: transparent; color: var(--tab-text); border-radius: 6px; cursor: pointer; transition: 0.2s; }
         .tab-btn.active { background: var(--tab-active-bg); color: var(--tab-active-text); }
-
         .dashboard { display: grid; gap: 15px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); max-width: 1200px; margin: 0 auto; }
 
-        .card { 
-            background: var(--card-bg); border: var(--card-border); padding: 15px; border-radius: 8px;
-            box-shadow: var(--card-shadow); border-left: 5px solid var(--card-border-left); 
-        }
+        .card { background: var(--card-bg); border: var(--card-border); padding: 15px; border-radius: 8px; box-shadow: var(--card-shadow); border-left: 5px solid var(--card-border-left); }
         .time-title { font-size: 18px; font-weight: bold; margin-bottom: 15px; border-bottom: 1px dashed var(--card-border); padding-bottom: 8px; }
 
         .counter-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
-        .counter-label { font-size: 14px; font-weight: bold; width: 65px; }
+        .counter-label { font-size: 13px; font-weight: bold; width: 85px; }
         .counter-controls { display: flex; align-items: center; gap: 12px; }
 
-        .btn-calc { 
-            width: 44px; height: 44px; font-size: 22px; font-weight: bold; font-family: inherit;
-            border: var(--card-border); border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: 0.1s;
-        }
+        .btn-calc { width: 44px; height: 44px; font-size: 22px; font-weight: bold; font-family: inherit; border: var(--card-border); border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: 0.1s; }
         .btn-calc:disabled { opacity: 0.3; cursor: not-allowed; }
 
         .btn-minus { background: var(--btn-minus-bg); color: var(--btn-minus-text); }
@@ -129,43 +61,28 @@
         .btn-called { background: var(--btn-called-bg); color: var(--btn-issue-text); }
         .btn-called:active:not(:disabled) { background: var(--btn-called-active); color: #000; }
 
-        .count-display { font-size: 26px; font-weight: bold; width: 80px; text-align: center; }
+        .btn-called-noticket { background: var(--btn-called-noticket-bg); color: var(--btn-issue-text); }
+        .btn-called-noticket:active:not(:disabled) { background: var(--btn-called-noticket-active); color: #000; }
+
+        .count-display { font-size: 24px; font-weight: bold; width: 80px; text-align: center; }
         .count-display span { font-size: 12px; color: var(--sub-color); margin-left: 2px; }
         .max-alert { color: var(--alert-color); }
 
-        .reset-btn { 
-            background: var(--reset-bg); display: block; margin: 50px auto; padding: 10px 20px; 
-            font-size: 13px; font-family: inherit; color: white; border: none; cursor: pointer; border-radius: 6px;
-        }
+        .total-display-area { background: rgba(0, 0, 0, 0.03); border-radius: 6px; padding: 8px 15px; margin-top: 15px; display: flex; justify-content: space-between; align-items: center; }
+        body.theme-special .total-display-area { background: rgba(0, 255, 204, 0.05); }
 
-        /* ----- テーマ選択画面（入り口） ----- */
-        #intro-screen {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100vh;
-            background: #f4f6f9; display: flex; flex-direction: column; 
-            align-items: center; justify-content: center; z-index: 1000;
-        }
+        .reset-btn { background: var(--reset-bg); display: block; margin: 50px auto; padding: 10px 20px; font-size: 13px; font-family: inherit; color: white; border: none; cursor: pointer; border-radius: 6px; }
+
+        #intro-screen { position: fixed; top: 0; left: 0; width: 100%; height: 100vh; background: #f4f6f9; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 1000; }
         .intro-box { text-align: center; background: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
         .intro-box h2 { color: #333; margin-bottom: 20px; }
-        .theme-btn { 
-            display: block; width: 100%; padding: 15px; margin-bottom: 15px; 
-            font-size: 18px; font-weight: bold; border-radius: 8px; cursor: pointer; border: none;
-        }
+        .theme-btn { display: block; width: 100%; padding: 15px; margin-bottom: 15px; font-size: 18px; font-weight: bold; border-radius: 8px; cursor: pointer; border: none; }
         .theme-btn.normal { background: #007bff; color: white; }
         .theme-btn.special { background: #0b0f19; color: #00ffcc; border: 2px solid #00ffcc; font-family: monospace; }
-
-        /* ----- 画面端のテーマ切り替えボタン ----- */
-        #theme-toggle {
-            position: fixed; bottom: 20px; right: 20px;
-            background: var(--card-bg); color: var(--text-main);
-            border: 2px solid var(--card-border-left); border-radius: 30px;
-            padding: 10px 20px; font-size: 14px; font-weight: bold; cursor: pointer;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.2); z-index: 100;
-            font-family: inherit; transition: 0.3s;
-        }
+        #theme-toggle { position: fixed; bottom: 20px; right: 20px; background: var(--card-bg); color: var(--text-main); border: 2px solid var(--card-border-left); border-radius: 30px; padding: 10px 20px; font-size: 14px; font-weight: bold; cursor: pointer; box-shadow: 0 2px 10px rgba(0,0,0,0.2); z-index: 100; font-family: inherit; transition: 0.3s; }
     </style>
 </head>
 <body>
-    <!-- 入り口：テーマ選択画面 -->
     <div id="intro-screen">
         <div class="intro-box">
             <h2>ダッシュボードのデザインを選択</h2>
@@ -174,11 +91,8 @@
         </div>
     </div>
 
-    <!-- メイン画面 -->
     <div id="app-container">
-        <!-- 右下のデザイン切り替えボタン -->
         <button id="theme-toggle" onclick="toggleTheme()">🎨 デザイン変更</button>
-
         <h1 id="main-title">整理券システム</h1>
         <div class="header-info" id="main-info">※複数端末で開いても自動同期されます</div>
 
@@ -188,21 +102,19 @@
         </div>
 
         <div class="dashboard" id="slots"></div>
-
         <button class="reset-btn" onclick="hardReset()">⚠️ データを全消去して再構築</button>
     </div>
 
     <script>
         let currentDay = 'Day 1';
         let localData = [];
-        let lastActionTime = 0; // ★巻き戻り防止のためのタイマー
+        let lastActionTime = 0; 
 
-        // --- テーマ切り替え関連 ---
         function enterSite(theme) {
             document.getElementById('intro-screen').style.display = 'none';
             document.getElementById('app-container').style.display = 'block';
             applyTheme(theme);
-            fetchStatus(); // 入室時にデータ取得開始
+            fetchStatus(); 
             setInterval(fetchStatus, 3000);
         }
 
@@ -223,7 +135,6 @@
             }
         }
 
-        // --- データ管理関連 ---
         function switchDay(day) {
             currentDay = day;
             document.getElementById('tab-Day 1').classList.toggle('active', day === 'Day 1');
@@ -232,12 +143,18 @@
         }
 
         async function fetchStatus() {
-            // ★巻き戻り防止策：最後のボタン操作から2.5秒以内はデータ受信をスキップする
-            if (Date.now() - lastActionTime < 2500) return;
+            // ★対策1：最後にボタンを押してから3.5秒間はデータの更新をブロック
+            if (Date.now() - lastActionTime < 3500) return;
 
             try {
                 const res = await fetch('/api/slots');
-                localData = await res.json();
+                const newData = await res.json();
+
+                // ★対策2(最重要)：通信に時間がかかっている間にボタンが押されたら、
+                // 到着した古いデータでの上書きをキャンセルする！
+                if (Date.now() - lastActionTime < 3500) return;
+
+                localData = newData;
                 renderUI();
             } catch (err) {
                 console.error('Data Sync Error:', err);
@@ -252,6 +169,8 @@
             slots.forEach(slot => {
                 const issued = slot.issued || 0;
                 const called = slot.called || 0;
+                const calledNoTicket = slot.calledNoTicket || 0;
+                const totalCalled = called + calledNoTicket;
                 const max = slot.maxTickets || 20;
 
                 const card = document.createElement('div');
@@ -269,12 +188,26 @@
                     </div>
 
                     <div class="counter-row">
-                        <div class="counter-label" style="color: var(--called-color);">呼出</div>
+                        <div class="counter-label" style="color: var(--called-color);">呼出<br><span style="font-size:10px">(整理券)</span></div>
                         <div class="counter-controls">
                             <button class="btn-calc btn-minus" onclick="updateCount('${slot.day}', '${slot.time}', 'called', -1)" ${called <= 0 ? 'disabled' : ''}>-</button>
                             <div class="count-display" style="color: var(--called-color);">${called}</div>
                             <button class="btn-calc btn-called" onclick="updateCount('${slot.day}', '${slot.time}', 'called', 1)" ${called >= issued ? 'disabled' : ''}>+</button>
                         </div>
+                    </div>
+
+                    <div class="counter-row">
+                        <div class="counter-label" style="color: var(--called-noticket-color);">呼出<br><span style="font-size:10px">(整理券なし)</span></div>
+                        <div class="counter-controls">
+                            <button class="btn-calc btn-minus" onclick="updateCount('${slot.day}', '${slot.time}', 'calledNoTicket', -1)" ${calledNoTicket <= 0 ? 'disabled' : ''}>-</button>
+                            <div class="count-display" style="color: var(--called-noticket-color);">${calledNoTicket}<span>/20</span></div>
+                            <button class="btn-calc btn-called-noticket" onclick="updateCount('${slot.day}', '${slot.time}', 'calledNoTicket', 1)" ${calledNoTicket >= 20 ? 'disabled' : ''}>+</button>
+                        </div>
+                    </div>
+
+                    <div class="total-display-area">
+                        <div class="counter-label" style="color: var(--total-color); font-size: 14px;">現在の<br>呼出合計数</div>
+                        <div class="count-display" style="color: var(--total-color); width: auto; font-size: 28px;">${totalCalled} <span style="font-size: 14px;">人</span></div>
                     </div>
                 `;
                 container.appendChild(card);
@@ -282,7 +215,7 @@
         }
 
         function updateCount(day, time, type, change) {
-            // ★ボタンを押した時間を記録して、直後の画面更新（巻き戻り）をストップ
+            // ★ボタンを押した時間を記録して、画面更新を一時ストップ
             lastActionTime = Date.now();
 
             const slot = localData.find(s => s.day === day && s.time === time);
@@ -292,6 +225,8 @@
                     if (slot.called > slot.issued) slot.called = slot.issued; 
                 } else if (type === 'called') {
                     slot.called = Math.max(0, Math.min(slot.issued, slot.called + change)); 
+                } else if (type === 'calledNoTicket') {
+                    slot.calledNoTicket = Math.max(0, Math.min(20, (slot.calledNoTicket || 0) + change)); 
                 }
                 renderUI(); 
             }
@@ -307,7 +242,7 @@
             if(confirm('本当にすべてのデータを消去し、初期化しますか？')) {
                 await fetch('/api/hard-reset', { method: 'POST' });
                 alert('初期化が完了しました。');
-                lastActionTime = 0; // ロック解除
+                lastActionTime = 0; 
                 fetchStatus();
             }
         }

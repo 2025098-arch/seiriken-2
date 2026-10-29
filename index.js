@@ -12,21 +12,20 @@ const slotSchema = new mongoose.Schema({
   time: String,
   maxTickets: { type: Number, default: 20 },
   issued: { type: Number, default: 0 },
-  called: { type: Number, default: 0 }
+  called: { type: Number, default: 0 },
+  calledNoTicket: { type: Number, default: 0 }
 });
-const Slot = mongoose.model('Slot', slotSchema);
+
+const Slot = mongoose.model('ClassBSlot', slotSchema);
 
 async function initSlots() {
   const count = await Slot.countDocuments();
   if (count === 0) {
     const defaultSlots = [];
-
-    // Day 1 (13:00 〜 15:30)
-    const day1Times = ['13:00', '13:15', '13:30', '13:45', '14:00', '14:15', '14:30', '14:45', '15:00', '15:15', '15:30'];
+    const day1Times = ['12:00', '12:30', '13:00', '13:30', '14:00', '14:30', '15:00', '15:30'];
     day1Times.forEach(t => defaultSlots.push({ day: 'Day 1', time: t, maxTickets: 20 }));
 
-    // Day 2 (09:00 〜 11:00)
-    const day2Times = ['09:00', '09:15', '09:30', '09:45', '10:00', '10:15', '10:30', '10:45', '11:00'];
+    const day2Times = ['09:00', '09:30', '10:00', '10:30', '11:00', '11:30'];
     day2Times.forEach(t => defaultSlots.push({ day: 'Day 2', time: t, maxTickets: 20 }));
 
     await Slot.insertMany(defaultSlots);
@@ -48,22 +47,39 @@ app.get('/api/slots', async (req, res) => {
 
 app.post('/api/update-count', async (req, res) => {
   const { day, time, type, change } = req.body;
-  const slot = await Slot.findOne({ day, time });
+
+  // ★対策1：連打されても確実に取りこぼさない「アトミック更新($inc)」を使用
+  let updateQuery = {};
+  if (type === 'issued') updateQuery = { $inc: { issued: change } };
+  else if (type === 'called') updateQuery = { $inc: { called: change } };
+  else if (type === 'calledNoTicket') updateQuery = { $inc: { calledNoTicket: change } };
+
+  // まず確実に足し算・引き算を実行する
+  let slot = await Slot.findOneAndUpdate(
+    { day, time },
+    updateQuery,
+    { new: true }
+  );
 
   if (!slot) return res.status(404).json({ error: 'Not found' });
 
-  if (type === 'issued') {
-    // 0〜20（maxTickets）の間に制限する
-    slot.issued = Math.max(0, Math.min(slot.maxTickets, slot.issued + change));
-    // もし発券数を減らして呼出数より小さくなった場合、呼出数も合わせる
-    if (slot.called > slot.issued) slot.called = slot.issued;
-  } else if (type === 'called') {
-    // 0〜発券数の間に制限する
-    slot.called = Math.max(0, Math.min(slot.issued, slot.called + change));
+  // ★対策2：足しすぎたり引きすぎた場合（0〜20の範囲外）は、安全な数値に補正する
+  let needsFix = false;
+  if (slot.issued < 0) { slot.issued = 0; needsFix = true; }
+  if (slot.issued > slot.maxTickets) { slot.issued = slot.maxTickets; needsFix = true; }
+
+  if (slot.called < 0) { slot.called = 0; needsFix = true; }
+  if (slot.called > slot.issued) { slot.called = slot.issued; needsFix = true; }
+
+  if (slot.calledNoTicket < 0) { slot.calledNoTicket = 0; needsFix = true; }
+  if (slot.calledNoTicket > 20) { slot.calledNoTicket = 20; needsFix = true; }
+
+  // 補正があった場合のみ保存し直す
+  if (needsFix) {
+    await slot.save();
   }
 
-  await slot.save();
-  res.json({ success: true, issued: slot.issued, called: slot.called });
+  res.json({ success: true, issued: slot.issued, called: slot.called, calledNoTicket: slot.calledNoTicket });
 });
 
 app.post('/api/hard-reset', async (req, res) => {
